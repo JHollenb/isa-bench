@@ -1,0 +1,8 @@
+[core]
+    remote = beast-cold
+    analytics = false
+[cache]
+    type = reflink, copy
+['remote "beast-cold"']
+    url = s3://experiments/dvc/isa-bench
+    endpointurl = http://192.168.68.68:9010

@@ -1,0 +1,10 @@
+name: sel_mamba
+family: selector
+description: "Seed-673 Mamba-style selector, 78,113 params (2026-10-14 six-model cohort); picks one of 33 families, the supplied PAN consumer computes the effect."
+code: models/selector
+selector: mamba
+artifact: artifacts/frozen/sel_mamba
+compare: {gprs: 16, flags: [CF, ZF, SF, OF]}
+resources: {ram_mb: 2500, cpu_threads: 2}
+train: null
+debug: {mdb: false, symbol_table: null}

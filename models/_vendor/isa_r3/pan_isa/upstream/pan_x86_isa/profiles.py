@@ -1,0 +1,195 @@
+"""Target profile policy for all-mode PAN x86 ISA work."""
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any, Dict, Tuple
+
+
+TARGET = "all"
+USER64_ALIAS = "user64"
+LONG64_RING3 = "long64-ring3"
+
+PROFILE_IDS: Tuple[str, ...] = (
+    "real16",
+    "prot32-ring3",
+    "prot32-ring0",
+    "compat32-ring3",
+    "compat32-ring0",
+    LONG64_RING3,
+    "long64-ring0",
+)
+
+TARGET_ALIASES = {
+    USER64_ALIAS: LONG64_RING3,
+    "x86_64-user": LONG64_RING3,
+    "x86_64-ring3": LONG64_RING3,
+}
+
+BASE_CPUID_FEATURES = (
+    "BASE",
+    "CMOV",
+    "CX8",
+    "FXSR",
+    "SSE",
+    "SSE2",
+    "SSE3",
+    "SSSE3",
+    "SSE4",
+    "POPCNT",
+    "LZCNT",
+    "BMI1",
+    "BMI2",
+)
+
+EXTENDED_CPUID_OVERLAYS = {
+    "avx": ("AVX", "F16C", "FMA"),
+    "avx2": ("AVX", "AVX2", "F16C", "FMA"),
+    "avx512": ("AVX", "AVX2", "AVX512F", "AVX512BW", "AVX512DQ", "AVX512VL"),
+    "system-intel": ("VMX", "SGX", "CET", "XSAVE", "XSAVEOPT"),
+    "system-amd": ("SVM", "XOP", "TBM", "XSAVE", "XSAVEOPT"),
+}
+
+TARGET_PROFILES: Dict[str, Dict[str, Any]] = {
+    "real16": {
+        "target_profile": "real16",
+        "architecture": "x86",
+        "mode": "real",
+        "long_mode": False,
+        "ring": 0,
+        "operand_bits": 16,
+        "address_bits": 20,
+        "paging": "disabled",
+        "segments": "real-mode",
+        "system_state": True,
+        "default_ip": "0x00007c00",
+        "default_sp": "0x00007c00",
+    },
+    "prot32-ring3": {
+        "target_profile": "prot32-ring3",
+        "architecture": "x86",
+        "mode": "protected",
+        "long_mode": False,
+        "ring": 3,
+        "operand_bits": 32,
+        "address_bits": 32,
+        "paging": "flat_sandbox",
+        "segments": "flat-protected",
+        "system_state": False,
+        "default_ip": "0x00400000",
+        "default_sp": "0x00100f00",
+    },
+    "prot32-ring0": {
+        "target_profile": "prot32-ring0",
+        "architecture": "x86",
+        "mode": "protected",
+        "long_mode": False,
+        "ring": 0,
+        "operand_bits": 32,
+        "address_bits": 32,
+        "paging": "flat_sandbox",
+        "segments": "flat-protected",
+        "system_state": True,
+        "default_ip": "0x00400000",
+        "default_sp": "0x00100f00",
+    },
+    "compat32-ring3": {
+        "target_profile": "compat32-ring3",
+        "architecture": "x86-64",
+        "mode": "compatibility",
+        "long_mode": True,
+        "ring": 3,
+        "operand_bits": 32,
+        "address_bits": 32,
+        "paging": "flat_sandbox",
+        "segments": "compat-flat",
+        "system_state": False,
+        "default_ip": "0x00400000",
+        "default_sp": "0x00100f00",
+    },
+    "compat32-ring0": {
+        "target_profile": "compat32-ring0",
+        "architecture": "x86-64",
+        "mode": "compatibility",
+        "long_mode": True,
+        "ring": 0,
+        "operand_bits": 32,
+        "address_bits": 32,
+        "paging": "flat_sandbox",
+        "segments": "compat-flat",
+        "system_state": True,
+        "default_ip": "0x00400000",
+        "default_sp": "0x00100f00",
+    },
+    LONG64_RING3: {
+        "target_profile": LONG64_RING3,
+        "architecture": "x86-64",
+        "mode": "long",
+        "long_mode": True,
+        "ring": 3,
+        "operand_bits": 64,
+        "address_bits": 64,
+        "paging": "flat_sandbox",
+        "segments": "flat",
+        "system_state": False,
+        "default_ip": "0x0000000000400000",
+        "default_sp": "0x0000000000100f00",
+    },
+    "long64-ring0": {
+        "target_profile": "long64-ring0",
+        "architecture": "x86-64",
+        "mode": "long",
+        "long_mode": True,
+        "ring": 0,
+        "operand_bits": 64,
+        "address_bits": 64,
+        "paging": "flat_sandbox",
+        "segments": "flat",
+        "system_state": True,
+        "default_ip": "0x0000000000400000",
+        "default_sp": "0x0000000000100f00",
+    },
+}
+
+
+def resolve_profile(profile: str) -> str:
+    resolved = TARGET_ALIASES.get(profile, profile)
+    if resolved not in TARGET_PROFILES:
+        choices = ", ".join(PROFILE_IDS)
+        raise ValueError(f"unknown target profile {profile!r}; choose one of: {choices}")
+    return resolved
+
+
+def profile_policy(profile: str) -> Dict[str, Any]:
+    resolved = resolve_profile(profile)
+    policy = deepcopy(TARGET_PROFILES[resolved])
+    policy["cpuid_profile"] = {
+        "base": list(BASE_CPUID_FEATURES),
+        "overlays": {name: list(features) for name, features in EXTENDED_CPUID_OVERLAYS.items()},
+    }
+    policy["state_defaults"] = {
+        "rflags": "0x0000000000000002",
+        "eflags": "0x00000002",
+        "mxcsr": "0x00001f80",
+        "memory_sandbox_base": "0x0000000000100000",
+        "memory_sandbox_size": 4096,
+    }
+    policy["promotion_requirements"] = [
+        "profile-specific XED classification",
+        "exact XED encode/decode round-trip for generated bytes",
+        "byte-disjoint train/validation/long splits",
+        "two independent oracle reports or a classified divergence",
+        "typed PAN shard training evidence",
+        "exact touched-state and preserved-state metrics",
+        "negative-control degradation",
+    ]
+    return policy
+
+
+def all_profile_policy() -> Dict[str, Any]:
+    return {
+        "target": TARGET,
+        "profiles": {profile: profile_policy(profile) for profile in PROFILE_IDS},
+        "aliases": dict(TARGET_ALIASES),
+        "cpuid_overlays": {name: list(features) for name, features in EXTENDED_CPUID_OVERLAYS.items()},
+    }
+

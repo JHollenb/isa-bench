@@ -1,0 +1,30 @@
+name: de_hydra
+family: direct_effect
+description: "Round-3 direct-effect hydra executor (seed 673, aligned immediates): emits every next-state bit from 15 raw bytes + 8 GPRs + 4 flags."
+code: models/direct_effect
+arch: hydra
+architecture: {width: 48, layers: 3, state: 4, store: true, aligned: true}
+artifact: artifacts/frozen/de_hydra
+compare: {gprs: 8, flags: [CF, ZF, SF, OF]}
+resources: {ram_mb: 3000, cpu_threads: 2}
+# Training recipe of the frozen R3 artifact (job config in result.json). Used by stage=train for variants.
+train:
+  seed: 673
+  train_n: 800000
+  test_n: 4096
+  aligned: true
+  batch: 256
+  lr: 0.001
+  warmup: 1000
+  steps: 5000
+  max_updates: 40000
+  max_attempt_steps: 60000
+  margin_se: 2.0
+  patience: 99
+  plateau_delta: 0.003
+  schedule_on: attempts
+  cuda: true
+  vram_mb: 4000
+  ram_mb: 24000
+  est_wall_s: 7500
+debug: {mdb: true, symbol_table: null}

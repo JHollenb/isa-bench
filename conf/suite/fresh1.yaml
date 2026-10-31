@@ -1,0 +1,8 @@
+name: fresh1
+description: "M5c fresh set 1 (now dev for M5d)"
+dir: programs/fresh1
+programs: [calendar, glob, heap, linkedlist, matmul, rle]
+variants:
+  O0: ["-O0", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+  O2: ["-O2", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+max_trace_steps: 5000000

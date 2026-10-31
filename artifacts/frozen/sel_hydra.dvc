@@ -1,0 +1,6 @@
+outs:
+- md5: e54c137bb3189d17787ce31a8d53c79d.dir
+  size: 2526571
+  nfiles: 1
+  hash: md5
+  path: sel_hydra

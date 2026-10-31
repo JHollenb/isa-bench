@@ -1,0 +1,8 @@
+name: heldout_m4
+description: "M4 held-out set (now dev for M5)"
+dir: programs/heldout_m4
+programs: [bignum, bsearch, checksum, hashtab, reverse, vm]
+variants:
+  O0: ["-O0", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+  O2: ["-O2", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+max_trace_steps: 5000000

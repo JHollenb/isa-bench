@@ -1,0 +1,25 @@
+{
+  "cell_timeout_s": 10,
+  "device": "cpu",
+  "engines": [
+    "pan_reference",
+    "nn",
+    "pan_isa",
+    "fieldlm",
+    "spf_transformer",
+    "mamba",
+    "hydra",
+    "effect_nn",
+    "effect_mamba",
+    "effect_hydra"
+  ],
+  "max_steps": 200000,
+  "native_repeats": 15,
+  "schema": "isa-c-app-matrix-v1",
+  "scope": "Matched C-compiled freestanding ELF execution; native outputs checked independently; failures retained.",
+  "seed": 673,
+  "threads": 1,
+  "training_updates": 0,
+  "warm_repeats": 3,
+  "worker_budget_s": 420
+}

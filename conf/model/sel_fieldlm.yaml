@@ -1,0 +1,10 @@
+name: sel_fieldlm
+family: selector
+description: "Seed-673 FieldLM structural selector, 760 route records (2026-10-14 six-model cohort); picks one of 33 families, the supplied PAN consumer computes the effect."
+code: models/selector
+selector: fieldlm
+artifact: artifacts/frozen/sel_fieldlm
+compare: {gprs: 16, flags: [CF, ZF, SF, OF]}
+resources: {ram_mb: 2500, cpu_threads: 2}
+train: null
+debug: {mdb: false, symbol_table: null}

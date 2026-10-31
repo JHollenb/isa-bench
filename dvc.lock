@@ -1,0 +1,744 @@
+schema: '2.0'
+stages:
+  reference@c_apps:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=reference suite=c_apps
+    deps:
+    - path: conf/suite/c_apps.yaml
+      hash: md5
+      md5: 65c8f0dbd1c775193b9bfe8753496457
+      size: 453
+    - path: programs/c_apps
+      hash: md5
+      md5: 651344818abeceff04157a044088afa6.dir
+      size: 20593
+      nfiles: 8
+    - path: programs/tools
+      hash: md5
+      md5: 999378d7568aa08ca6898a2eff1fbe78.dir
+      size: 5725
+      nfiles: 2
+    - path: src/isa_bench/worker.py
+      hash: md5
+      md5: 0e1d11fc9d04f77eae46da8d80039569
+      size: 8858
+    outs:
+    - path: outputs/reference/c_apps
+      hash: md5
+      md5: e9b2f2d1f6e30449f457034b196f7e01.dir
+      size: 802173
+      nfiles: 41
+  reference@dev:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=reference suite=dev
+    deps:
+    - path: conf/suite/dev.yaml
+      hash: md5
+      md5: 0af44d8439ddd17c1010991615c8f5fb
+      size: 581
+    - path: programs/dev
+      hash: md5
+      md5: e204dfc759bba796bbfb3b20759c851f.dir
+      size: 3877
+      nfiles: 6
+    - path: programs/tools
+      hash: md5
+      md5: 999378d7568aa08ca6898a2eff1fbe78.dir
+      size: 5725
+      nfiles: 2
+    - path: src/isa_bench/worker.py
+      hash: md5
+      md5: 0e1d11fc9d04f77eae46da8d80039569
+      size: 8858
+    outs:
+    - path: outputs/reference/dev
+      hash: md5
+      md5: b75ee0cbfb3e5346bd4f2ccffac625c3.dir
+      size: 14183244
+      nfiles: 95
+  reference@heldout_m4:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=reference suite=heldout_m4
+    deps:
+    - path: conf/suite/heldout_m4.yaml
+      hash: md5
+      md5: 3a0f2b31ea8d0a3671ab3498b0523131
+      size: 547
+    - path: programs/heldout_m4
+      hash: md5
+      md5: d1c4eded18d12d920ef914e01ac6c63c.dir
+      size: 8261
+      nfiles: 7
+    - path: programs/tools
+      hash: md5
+      md5: 999378d7568aa08ca6898a2eff1fbe78.dir
+      size: 5725
+      nfiles: 2
+    - path: src/isa_bench/worker.py
+      hash: md5
+      md5: 0e1d11fc9d04f77eae46da8d80039569
+      size: 8858
+    outs:
+    - path: outputs/reference/heldout_m4
+      hash: md5
+      md5: 8d6df720bd60878ab0207225ae4a2f08.dir
+      size: 30398787
+      nfiles: 113
+  eval@unicorn:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[unicorn] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/none
+      hash: md5
+      md5: 6daaca54542cf7e943c6b6f0962d6ad1.dir
+      size: 80
+      nfiles: 1
+    - path: conf/model/unicorn.yaml
+      hash: md5
+      md5: d724ce2e04480376550e453f390ce015
+      size: 334
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/unicorn
+      hash: md5
+      md5: db5ae4df00a23182a4f56e2df7e202cc.dir
+      size: 2850
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/unicorn
+      hash: md5
+      md5: a3a1b95e944c27b9955cc6db8ff4fcae.dir
+      size: 79835
+      nfiles: 38
+    - path: outputs/metrics/unicorn.json
+      hash: md5
+      md5: a7661cce6af966948cced6bacba93ce3
+      size: 2454
+  eval@pan_reference:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[pan_reference] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/none
+      hash: md5
+      md5: 6daaca54542cf7e943c6b6f0962d6ad1.dir
+      size: 80
+      nfiles: 1
+    - path: conf/model/pan_reference.yaml
+      hash: md5
+      md5: 28b9acc9ebdfbb2c69aea952781736f3
+      size: 353
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/pan_reference
+      hash: md5
+      md5: 871e7f8333e7daea40cb75ee9eb19219.dir
+      size: 86250
+      nfiles: 38
+    - path: outputs/metrics/pan_reference.json
+      hash: md5
+      md5: f6381dd59fae67f9e16f58aaa3e67e48
+      size: 2284
+  eval@sel_pan_isa:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[sel_pan_isa] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/sel_pan_isa
+      hash: md5
+      md5: 45b01c3f350d4b7e9ea249b6b77178c2.dir
+      size: 7274893
+      nfiles: 1
+    - path: conf/model/sel_pan_isa.yaml
+      hash: md5
+      md5: 530e1794f6b4e9b4a4e1ebe22cc24afa
+      size: 431
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/sel_pan_isa
+      hash: md5
+      md5: fe635751cbd793e285fabee89b9de6db.dir
+      size: 89890
+      nfiles: 38
+    - path: outputs/metrics/sel_pan_isa.json
+      hash: md5
+      md5: c53d93e6f48e6dc78599be5c190482be
+      size: 2181
+  eval@sel_nn:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[sel_nn] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/sel_nn
+      hash: md5
+      md5: ec3b30318153c4b953afcddb42b7a61d.dir
+      size: 1807203
+      nfiles: 1
+    - path: conf/model/sel_nn.yaml
+      hash: md5
+      md5: 07251b8b5d0610fdf32c54ba821354bd
+      size: 406
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/sel_nn
+      hash: md5
+      md5: df9538f33b7a80b8cbf40b40e8ffe92a.dir
+      size: 89516
+      nfiles: 38
+    - path: outputs/metrics/sel_nn.json
+      hash: md5
+      md5: c6b1bf51b23b8af04db6268df69b828d
+      size: 2176
+  eval@sel_mamba:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[sel_mamba] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/sel_mamba
+      hash: md5
+      md5: 47aba71009c85b7e4fa0871ce4a6d91f.dir
+      size: 2505421
+      nfiles: 1
+    - path: conf/model/sel_mamba.yaml
+      hash: md5
+      md5: aeac53b3f758f1bf105fb57777d77d34
+      size: 411
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/sel_mamba
+      hash: md5
+      md5: f46ec6f7a0e264306c8293ab85b2be99.dir
+      size: 89559
+      nfiles: 38
+    - path: outputs/metrics/sel_mamba.json
+      hash: md5
+      md5: acfdc2e42ddf6b387b6e6ffb81bc0bcb
+      size: 2144
+  eval@sel_hydra:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[sel_hydra] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/sel_hydra
+      hash: md5
+      md5: e54c137bb3189d17787ce31a8d53c79d.dir
+      size: 2526571
+      nfiles: 1
+    - path: conf/model/sel_hydra.yaml
+      hash: md5
+      md5: 47db6db7532005c9e74f76ebc7b4da38
+      size: 411
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/sel_hydra
+      hash: md5
+      md5: 4a9b050d0f17e5200a172bb6ecca7de6.dir
+      size: 89869
+      nfiles: 38
+    - path: outputs/metrics/sel_hydra.json
+      hash: md5
+      md5: 92542d08876a54bce8474936b2d39c99
+      size: 2185
+  eval@sel_fieldlm:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[sel_fieldlm] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/sel_fieldlm
+      hash: md5
+      md5: fe4b378578d063d11c74c6f9b5fceace.dir
+      size: 42016
+      nfiles: 1
+    - path: conf/model/sel_fieldlm.yaml
+      hash: md5
+      md5: 4b268656cc724f414446b57bbb3e34e5
+      size: 428
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/sel_fieldlm
+      hash: md5
+      md5: 483d835851e0f5193c82eb115c19067e.dir
+      size: 91453
+      nfiles: 38
+    - path: outputs/metrics/sel_fieldlm.json
+      hash: md5
+      md5: 65586871c021d926bb6f1523edef63cf
+      size: 2398
+  eval@sel_spf:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[sel_spf] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/sel_spf
+      hash: md5
+      md5: 5818482aa2e72d2af201b7aad834d94a.dir
+      size: 42156
+      nfiles: 1
+    - path: conf/model/sel_spf.yaml
+      hash: md5
+      md5: 6dd2da2ac49beac77eae8e97d4e68a29
+      size: 437
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/selector
+      hash: md5
+      md5: 423de9c535d33dfafd6414dfbf22e1a8.dir
+      size: 6109
+      nfiles: 1
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/sel_spf
+      hash: md5
+      md5: 040408941d7a8e39e5c4ece5f6c538e1.dir
+      size: 92331
+      nfiles: 38
+    - path: outputs/metrics/sel_spf.json
+      hash: md5
+      md5: f509f9002d0494e565f5de4435280099
+      size: 2399
+  eval@de_nn:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[de_nn] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/de_nn
+      hash: md5
+      md5: d18e679ee9992f5c9bd96597e79ffe1c.dir
+      size: 1314297
+      nfiles: 2
+    - path: conf/model/de_nn.yaml
+      hash: md5
+      md5: d349e687374faae52b4cac6dce92e888
+      size: 869
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/direct_effect
+      hash: md5
+      md5: b551699a54121f7366ebac88ca4ec97e.dir
+      size: 105698
+      nfiles: 8
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/de_nn
+      hash: md5
+      md5: 131c178090218fad3ab20721d3c04d93.dir
+      size: 140644
+      nfiles: 38
+    - path: outputs/metrics/de_nn.json
+      hash: md5
+      md5: 5d731d56395a1648ac894258732df3fe
+      size: 2302
+  eval@de_mamba:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[de_mamba] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/de_mamba
+      hash: md5
+      md5: 05038445cfe183966760d63653443de0.dir
+      size: 1191304
+      nfiles: 2
+    - path: conf/model/de_mamba.yaml
+      hash: md5
+      md5: b4d2e123739721c39a7ed105350b6894
+      size: 922
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/direct_effect
+      hash: md5
+      md5: b551699a54121f7366ebac88ca4ec97e.dir
+      size: 105698
+      nfiles: 8
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/de_mamba
+      hash: md5
+      md5: 761b845e836727d8e309f2c2547335a9.dir
+      size: 141247
+      nfiles: 38
+    - path: outputs/metrics/de_mamba.json
+      hash: md5
+      md5: f162d76362756f942db8c543d7f4c1d7
+      size: 2304
+  eval@de_hydra:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[de_hydra] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/de_hydra
+      hash: md5
+      md5: fd4866c7258427d94013fcb708eb3268.dir
+      size: 1192172
+      nfiles: 2
+    - path: conf/model/de_hydra.yaml
+      hash: md5
+      md5: 057f0e3443af0e2ba4737e6800058d9a
+      size: 881
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/direct_effect
+      hash: md5
+      md5: b551699a54121f7366ebac88ca4ec97e.dir
+      size: 105698
+      nfiles: 8
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/de_hydra
+      hash: md5
+      md5: 7b0cb800761e38910b486a1c1887f02a.dir
+      size: 142320
+      nfiles: 38
+    - path: outputs/metrics/de_hydra.json
+      hash: md5
+      md5: 431e9addc4fd3e14487c97cd39a303cf
+      size: 2306
+  eval@m5d:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=matrix models=[m5d] suites=[c_apps,dev,heldout_m4]
+    deps:
+    - path: artifacts/frozen/m5d
+      hash: md5
+      md5: 16722d8cfbdd399a87f1e2cbc3297d24.dir
+      size: 94903625
+      nfiles: 2
+    - path: conf/model/m5d.yaml
+      hash: md5
+      md5: 6c946f508000eec8ffb73d2cfee6e052
+      size: 480
+    - path: models/_vendor/isa_r3
+      hash: md5
+      md5: cf42a0e9e77b26cfeaa4f3ed46dbafc5.dir
+      size: 9687201
+      nfiles: 471
+    - path: models/m5d
+      hash: md5
+      md5: 3448e42931b44cf38e8f7766d7e8b5ff.dir
+      size: 424915
+      nfiles: 19
+    - path: outputs/reference
+      hash: md5
+      md5: a1ab1986fc57445cab2f13eb1ed012f4.dir
+      size: 45384229
+      nfiles: 250
+    - path: src/isa_bench
+      hash: md5
+      md5: 7ee56ee11a8d860e743d95736ffabcc1.dir
+      size: 73073
+      nfiles: 11
+    params:
+      conf/config.yaml:
+        run:
+          warm_repeats: 2
+          cell_timeout_s: 900
+          run_wall_s: 240
+          repeat_budget_s: 20
+          max_steps_factor: 1.25
+          max_steps_cap: 3000000
+          threads: 1
+    outs:
+    - path: outputs/eval/m5d
+      hash: md5
+      md5: 09b1b8cff68a3fbd85b17087241bfeb4.dir
+      size: 87324
+      nfiles: 38
+    - path: outputs/metrics/m5d.json
+      hash: md5
+      md5: 1c30e84f9a55753094ecc92c2950ec3f
+      size: 2614
+  report:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
+      stage=report
+    deps:
+    - path: outputs/eval
+      hash: md5
+      md5: 50b585e1ed7901505a5b0e39aa77c321.dir
+      size: 1220359
+      nfiles: 457
+    - path: src/isa_bench/cli.py
+      hash: md5
+      md5: f04fd0fc65e8e89bfa8361522143082c
+      size: 13509
+    outs:
+    - path: outputs/report/matrix.json
+      hash: md5
+      md5: 43791f4e595b5b99dca20c5147bfd4c7
+      size: 27227
+    - path: outputs/report/matrix.md
+      hash: md5
+      md5: 15f139a878c2b3188a1f825577057d27
+      size: 1129

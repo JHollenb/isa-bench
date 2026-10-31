@@ -1,0 +1,9 @@
+# MLflow tracking + model registry on Beast (artifacts in Beast cold MinIO, bucket `mlflow`).
+# The laptop's Python cannot reach 192.168.68.68 directly (macOS local-network block): `just tunnels`
+# forwards 15000->5000, 19010->9010, 19025->9025 and the env below points at the tunnels.
+enabled: true
+tracking_uri: ${oc.env:ISA_BENCH_MLFLOW_URI,http://127.0.0.1:15000}
+s3_endpoint: ${oc.env:ISA_BENCH_S3_ENDPOINT,http://127.0.0.1:19010}
+experiment: isa-bench
+registry_prefix: isa-bench
+trackio: false   # Zima Trackio (192.168.68.202:7860) is optional; its docker daemon was down on 2026-10-30

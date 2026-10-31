@@ -1,0 +1,11 @@
+{
+  "base_job": "job-b5815a7274fc",
+  "frozen_source": "outputs/seed673/source",
+  "original_factory_ast_equal": true,
+  "original_model_ast_equal": true,
+  "original_suite_file_sha256": "5203c242ed7de13650bd59674b824f42c01aa8c23e9a07a49f1a1c79db77832a",
+  "scope": "all original selector definitions and original native consumer/training/vendor bytes preserved",
+  "validation_fixed_sha256": "ee2a55abac84a845dd85c6df691f8c9cb62d1fcb5044e02db132a7250856c8ed",
+  "validation_original_sha256": "684974ccd1c4197a8d68e1ad10da54398cf53b7c0052dbb4788f378c94c7f3c7",
+  "validation_patch": "gzip writer variable renamed so first-divergence reports retain input-only stream"
+}

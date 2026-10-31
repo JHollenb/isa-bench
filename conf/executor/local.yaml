@@ -1,0 +1,5 @@
+# Local execution: unit-scale smoke only (x86-64 Linux needed for reference/native; the laptop is not).
+kind: local
+priority: 0
+stage_dir: runs
+wait: true

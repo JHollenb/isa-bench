@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+.env
+.env.*
+!.env.example
+/outputs/train/
+/outputs/smoke/
+/runs/
+/debug/
+/mlruns/
+.dvc/cache/
+.dvc/tmp/

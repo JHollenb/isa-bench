@@ -1,0 +1,6 @@
+outs:
+- md5: 05038445cfe183966760d63653443de0.dir
+  size: 1191304
+  nfiles: 2
+  hash: md5
+  path: de_mamba

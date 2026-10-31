@@ -1,0 +1,8 @@
+name: c_apps
+description: Four freestanding C apps from the 2026-10-30 compiled-C PoC (job-007fe5d65603); -Os, inline-asm write/exit.
+dir: programs/c_apps
+programs: [tiny_hello, small_checksum, medium_sort, large_records]
+variants:
+  Os: ["-Os", "-std=c11", "-nostdlib", "-static", "-no-pie", "-fno-pie", "-fno-stack-protector",
+       "-fno-asynchronous-unwind-tables", "-fcf-protection=none", "-Wl,--build-id=none,-e,_start"]
+max_trace_steps: 5000000

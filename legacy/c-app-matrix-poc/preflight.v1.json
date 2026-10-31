@@ -1,0 +1,36 @@
+{
+  "hashed_roots": [
+    "artifacts",
+    "campaign.json",
+    "campaign_worker.py",
+    "cases.json",
+    "contract-parity.json",
+    "direct_effect",
+    "execution_study.py",
+    "fieldlm",
+    "full_child.py",
+    "full_worker.py",
+    "hydra_isa",
+    "isa_lab",
+    "mamba_isa",
+    "matrix-config.json",
+    "native_asm",
+    "native_measure.c",
+    "newer_adapter.py",
+    "nn",
+    "pan_isa",
+    "programs",
+    "run_matrix.py",
+    "specimen-archive.json",
+    "spf_transformer",
+    "ssm_campaign.py",
+    "study.json",
+    "trace_opmix.c",
+    "vendor"
+  ],
+  "path_token_allowlist": [
+    "{env}",
+    "result",
+    "result.tar.gz"
+  ]
+}

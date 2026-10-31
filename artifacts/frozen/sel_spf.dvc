@@ -1,0 +1,6 @@
+outs:
+- md5: 5818482aa2e72d2af201b7aad834d94a.dir
+  size: 42156
+  nfiles: 1
+  hash: md5
+  path: sel_spf

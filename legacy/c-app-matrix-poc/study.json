@@ -1,0 +1,59 @@
+{
+  "baseline_job": "job-b5815a7274fc",
+  "config_sha256": "157d65e1935a05d962571aea402de00fb2bcf19fa370c14c5e0cedac079ce98c",
+  "execution": {
+    "backend": "cpu",
+    "cpu_threads": 1,
+    "device": "cpu",
+    "env_alias": "mrun",
+    "measurement_source": "job-f487f2dcf33a",
+    "prefer_host": "beast",
+    "reservation": {
+      "ram_mb": 3072,
+      "vram_mb": 0
+    },
+    "timeout_s": 750
+  },
+  "order_offset": 0,
+  "original_suite_file_sha256": "5203c242ed7de13650bd59674b824f42c01aa8c23e9a07a49f1a1c79db77832a",
+  "seed": 673,
+  "smoke": false,
+  "study": {
+    "child_timeout_s": 360,
+    "intervals": 4,
+    "lengths": [
+      16,
+      128,
+      1024
+    ],
+    "models": [
+      "nn",
+      "pan_isa",
+      "fieldlm",
+      "spf_transformer",
+      "mamba",
+      "hydra"
+    ],
+    "native_repeats": 20,
+    "new_models": [
+      "mamba",
+      "hydra"
+    ],
+    "repeats": 3,
+    "steps": 128,
+    "timeout_s": 840,
+    "validation_steps": 8192
+  },
+  "tracking": {
+    "dvc": {
+      "enabled": true,
+      "push": false
+    },
+    "mlflow": {
+      "enabled": false
+    },
+    "mrun_outbox": {
+      "enabled": true
+    }
+  }
+}

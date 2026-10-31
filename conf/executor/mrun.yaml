@@ -1,0 +1,10 @@
+# Real execution goes to Beast through mrun (workspace rule: all compute via mrun).
+kind: mrun
+host: beast
+env_alias: mrun
+priority: 50
+uv_with: ["unicorn==2.1.4", "psutil>=5.9"]
+remote_work: /mnt/hdd8tb/mrun-work      # where mrun keeps job dirs (results are rsynced back from here)
+wait: true
+max_wait_s: 21600
+stage_dir: runs                         # local staging + receipts: runs/<stage>/<model>/<suite>/<stamp>

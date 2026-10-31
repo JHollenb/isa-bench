@@ -1,0 +1,19 @@
+# Pipeline matrix. Every model here gets an eval@<model> stage over `suites` (one mrun lease per model).
+# Model knobs live in conf/model/<model>.yaml (a DVC dependency of its eval stage): edit that file or the
+# family code under models/<family>/ and `dvc repro` re-runs only the affected model.
+# fresh1/fresh2 are the M4 proof-gate held-out sets: evaluate them deliberately, not on every repro.
+suites: "[c_apps,dev,heldout_m4]"
+suite_names: [c_apps, dev, heldout_m4]
+models:
+  unicorn: {family: unicorn, artifact: artifacts/none}
+  pan_reference: {family: selector, artifact: artifacts/none}
+  sel_pan_isa: {family: selector, artifact: artifacts/frozen/sel_pan_isa}
+  sel_nn: {family: selector, artifact: artifacts/frozen/sel_nn}
+  sel_mamba: {family: selector, artifact: artifacts/frozen/sel_mamba}
+  sel_hydra: {family: selector, artifact: artifacts/frozen/sel_hydra}
+  sel_fieldlm: {family: selector, artifact: artifacts/frozen/sel_fieldlm}
+  sel_spf: {family: selector, artifact: artifacts/frozen/sel_spf}
+  de_nn: {family: direct_effect, artifact: artifacts/frozen/de_nn}
+  de_mamba: {family: direct_effect, artifact: artifacts/frozen/de_mamba}
+  de_hydra: {family: direct_effect, artifact: artifacts/frozen/de_hydra}
+  m5d: {family: m5d, artifact: artifacts/frozen/m5d}

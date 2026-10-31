@@ -1,0 +1,56 @@
+[
+  {
+    "elf_path": "programs/counter-16.elf",
+    "elf_sha256": "1605659bc8449613028a00f606f677d394ce6d51c3c65a4a577e9d38417c0e4c",
+    "expected_exit": 13,
+    "expected_stdout": "",
+    "id": "counter-16",
+    "kind": "elf",
+    "steps": 16
+  },
+  {
+    "elf_path": "programs/stdout-16.elf",
+    "elf_sha256": "29fce9feaf3ef7dde93966d1940801e0eafd30ff0408478047c74a8a8278bfd3",
+    "expected_exit": 0,
+    "expected_stdout": "0500000000000000",
+    "id": "stdout-16",
+    "kind": "elf",
+    "steps": 16
+  },
+  {
+    "elf_path": "programs/counter-128.elf",
+    "elf_sha256": "d1c5491f6c9844c127796971f1bbcc550156073c7f4dc3bc0c786795a23190bc",
+    "expected_exit": 125,
+    "expected_stdout": "",
+    "id": "counter-128",
+    "kind": "elf",
+    "steps": 128
+  },
+  {
+    "elf_path": "programs/stdout-128.elf",
+    "elf_sha256": "8d288814f6a6d0fd74ad29956dab84767847f7b0e1c36aad97409d068f2f782c",
+    "expected_exit": 0,
+    "expected_stdout": "7500000000000000",
+    "id": "stdout-128",
+    "kind": "elf",
+    "steps": 128
+  },
+  {
+    "elf_path": "programs/counter-1024.elf",
+    "elf_sha256": "a2652727f5b2c9e0a6afb9d2812fe3759294a9af32e508b677fe0234ac971948",
+    "expected_exit": 253,
+    "expected_stdout": "",
+    "id": "counter-1024",
+    "kind": "elf",
+    "steps": 1024
+  },
+  {
+    "elf_path": "programs/stdout-1024.elf",
+    "elf_sha256": "b2656bad0c3a53eb0a943e3cee16875ea56e20a2765a9bd1c092c4f53e6cd3e9",
+    "expected_exit": 0,
+    "expected_stdout": "f503000000000000",
+    "id": "stdout-1024",
+    "kind": "elf",
+    "steps": 1024
+  }
+]

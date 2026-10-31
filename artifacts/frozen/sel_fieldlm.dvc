@@ -1,0 +1,6 @@
+outs:
+- md5: fe4b378578d063d11c74c6f9b5fceace.dir
+  size: 42016
+  nfiles: 1
+  hash: md5
+  path: sel_fieldlm

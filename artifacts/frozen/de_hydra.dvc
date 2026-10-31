@@ -1,0 +1,6 @@
+outs:
+- md5: fd4866c7258427d94013fcb708eb3268.dir
+  size: 1192172
+  nfiles: 2
+  hash: md5
+  path: de_hydra

@@ -1,0 +1,6 @@
+outs:
+- md5: 45b01c3f350d4b7e9ea249b6b77178c2.dir
+  size: 7274893
+  nfiles: 1
+  hash: md5
+  path: sel_pan_isa

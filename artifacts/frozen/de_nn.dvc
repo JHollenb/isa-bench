@@ -1,0 +1,6 @@
+outs:
+- md5: d18e679ee9992f5c9bd96597e79ffe1c.dir
+  size: 1314297
+  nfiles: 2
+  hash: md5
+  path: de_nn

@@ -1,0 +1,6 @@
+outs:
+- md5: 47aba71009c85b7e4fa0871ce4a6d91f.dir
+  size: 2505421
+  nfiles: 1
+  hash: md5
+  path: sel_mamba

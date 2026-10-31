@@ -1,0 +1,19 @@
+{
+  "seeds": [
+    673
+  ],
+  "examples": 3,
+  "trace_length": 64,
+  "intervals": 4,
+  "steps": 128,
+  "timing_rounds": 1,
+  "repeats": 2,
+  "validation_steps": 8192,
+  "order_offset": 0,
+  "schema": "isa-full-campaign-v1",
+  "profile": "pan-native-stages0-4-runtime-v1",
+  "backend": "cpu",
+  "cpu_threads": 1,
+  "child_timeout_s": 300,
+  "mlflow": "skipped"
+}

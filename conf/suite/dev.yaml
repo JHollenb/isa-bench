@@ -1,0 +1,8 @@
+name: dev
+description: "M4/M5 development programs (fib, copy, sort, strings, math); DEV data for the structured machines"
+dir: programs/dev
+programs: [fib, copy, sort, strings, math]
+variants:
+  O0: ["-O0", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+  O2: ["-O2", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+max_trace_steps: 5000000

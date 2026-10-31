@@ -1,0 +1,7 @@
+# SPFTransformer ISA models
+
+`full_model.py` expands the native phase-memory adapter to all PAN stage forms and runtime families. Nine packed integer phase channels carry addresses, and four packed payload channels carry selected effect axes. A query requires every address channel to match. Native PAN consumers apply the selected effects, including memory, control flow, SIMD and exceptions. This remains the explicitly labeled phase-memory component track; it does not establish a complete contextual SPFTransformer.
+
+`model.py` implements the first native component on the SPFTransformer ladder. It packs opcode identity into existing SPF32 words, executes library phase characters, selects a learned packed route record through the library's exact select head, and converts the selected phase-code view into a candidate-control ID. It never decodes a Cartesian complex activation. All signal primitives come from the canonical SPF source.
+
+This is a native phase/read selector, not a complete contextual SPFTransformer. Its sparse route records are inferred from the same discovery transition evidence as the other models. The shared candidate library still supplies arithmetic. Full contextual formation, clocked coherent writes, dependent register/memory reads and learned effects are planned under the direct-effect track. Preserve both this component control and the richer model when that track is implemented.

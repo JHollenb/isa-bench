@@ -1,0 +1,43 @@
+# isa-bench: run compiled C programs on learned x86 executors, measure, register.
+#   python -m isa_bench stage=eval model=de_mamba suite=c_apps
+defaults:
+  - model: de_mamba
+  - suite: c_apps
+  - executor: mrun
+  - tracking: beast
+  - override hydra/job_logging: disabled
+  - override hydra/hydra_logging: disabled
+  - _self_
+
+stage: eval   # reference | eval | matrix | report | register | train | debug | status
+models: []    # stage=matrix: model config names, all evaluated in one lease
+suites: []    # stage=matrix: suite names
+only: null    # restrict eval to these program tags (smoke), e.g. only=[tiny_hello-Os]
+
+run:
+  warm_repeats: 2            # timed repeats after the first (cold) run of each program
+  cell_timeout_s: 900        # hard kill per (model, program) subprocess
+  run_wall_s: 240            # soft cap per run inside a cell -> status wall_limit (partial prefix kept)
+  repeat_budget_s: 20        # warm repeats only when the cold run took less than this
+  max_steps_factor: 1.25     # step budget = native steps * factor + 64
+  max_steps_cap: 3000000
+  threads: 1                 # torch/BLAS threads per cell (serial, comparable timing)
+
+debug:
+  program: null              # program tag to debug (e.g. small_checksum-Os)
+  step: null                 # step index; default = first divergence
+  open: false                # also open the MDB console on the recipe (direct-effect models)
+
+paths:
+  reference: outputs/reference/${suite.name}
+  eval: outputs/eval/${model.name}/${suite.name}
+  train: outputs/train/${model.name}
+  report: outputs/report
+  debug: debug/${model.name}
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  job:
+    chdir: false

@@ -1,0 +1,9 @@
+name: unicorn
+family: unicorn
+description: Unicorn 2.1.4 CPU emulator from the native initial state; known-good control for the harness (no learning).
+code: models/unicorn
+artifact: null
+compare: {gprs: 16, flags: [CF, PF, AF, ZF, SF, OF]}
+resources: {ram_mb: 1500, cpu_threads: 2}
+train: null
+debug: {mdb: false, symbol_table: null}

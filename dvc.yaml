@@ -1,0 +1,48 @@
+# reference@<suite> -> eval@<model> (all suites, one Beast lease) -> report.
+# Registration to MLflow is a side effect, so it is a just recipe (`just register <model>`), not a stage.
+vars:
+  - params.yaml
+
+stages:
+  reference:
+    foreach: ${suite_names}
+    do:
+      cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench stage=reference suite=${item}
+      deps:
+        - programs/${item}
+        - programs/tools
+        - conf/suite/${item}.yaml
+        - src/isa_bench/worker.py
+      outs:
+        - outputs/reference/${item}
+
+  eval:
+    foreach: ${models}
+    do:
+      cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench stage=matrix models=[${key}] suites=${suites}
+      deps:
+        - src/isa_bench
+        - models/${item.family}
+        - models/_vendor/isa_r3
+        - conf/model/${key}.yaml
+        - ${item.artifact}
+        - outputs/reference
+      params:
+        - conf/config.yaml:
+            - run
+      outs:
+        - outputs/eval/${key}
+      metrics:
+        - outputs/metrics/${key}.json:
+            cache: false
+
+  report:
+    cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench stage=report
+    deps:
+      - outputs/eval
+      - src/isa_bench/cli.py
+    outs:
+      - outputs/report/matrix.json:
+          cache: false
+      - outputs/report/matrix.md:
+          cache: false

@@ -1,0 +1,10 @@
+name: pan_reference
+family: selector
+description: Supplied PAN-ISA runtime with no learned selector (the June typed consumer); separates coverage from selection.
+code: models/selector
+selector: null
+artifact: null
+compare: {gprs: 16, flags: [CF, ZF, SF, OF]}
+resources: {ram_mb: 2500, cpu_threads: 2}
+train: null
+debug: {mdb: false, symbol_table: null}

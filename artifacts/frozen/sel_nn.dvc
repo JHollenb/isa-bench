@@ -1,0 +1,6 @@
+outs:
+- md5: ec3b30318153c4b953afcddb42b7a61d.dir
+  size: 1807203
+  nfiles: 1
+  hash: md5
+  path: sel_nn

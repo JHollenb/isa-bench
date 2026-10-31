@@ -1,0 +1,8 @@
+name: fresh2
+description: "M5d fresh set 2 (spent"
+dir: programs/fresh2
+programs: [ run once by the 10-16 gate):base64, exprparse, fixedpt, ringbuf, sieve, strmap]
+variants:
+  O0: ["-O0", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+  O2: ["-O2", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+max_trace_steps: 5000000

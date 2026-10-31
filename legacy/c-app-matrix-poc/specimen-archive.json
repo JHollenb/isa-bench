@@ -1,0 +1,10 @@
+{
+  "bytes": 25139208,
+  "job_id": "job-b5815a7274fc",
+  "name": "result.tar.gz",
+  "schema": "mrun.outbox-ledger-v1",
+  "seq": 89,
+  "sha256": "83615655d7760cc1ca06ebd86f724579a2c8bb8356def2de2e9eaaf253112f93",
+  "ts": 1792005365.0838182,
+  "type": "blob"
+}
