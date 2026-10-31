@@ -2,15 +2,15 @@
 
 Each workflow below is a series of commands you can copy and run, plus what to expect. They assume the repo root as the working directory and `just` installed. Every command that runs a model goes to Beast through mrun. The laptop only stages jobs, waits, fetches, reports and talks to MLflow.
 
-Times marked *measured* come from the mrun job named next to them: time on Beast, excluding queueing and staging. Expect about 30–90 s more per lease for staging, admission and fetching.
+Times marked *measured* come from the mrun job named next to them: time on Beast, excluding queueing and staging. Wall times from the 2026-10-30 test run of this doc are end to end on the laptop. A busy queue can double either.
 
 | workflow | what you get | time |
 |---|---|---|
 | [0. Session setup](#0-session-setup) | tunnels, artifacts, status | < 1 min |
-| [1. Update a model](#1-update-a-model-and-see-the-effect) | smoke → eval → diff → register | 2–25 min, depending on suites |
+| [1. Update a model](#1-update-a-model-and-see-the-effect) | smoke → eval → diff → register | seconds (unicorn, c_apps) to ~20 min (m5d on dev + heldout) |
 | [2. Train a model](#2-train-a-model) | a new direct-effect checkpoint, evaluated and registered | 25–75 min of GPU time |
-| [3. Run the proof gate](#3-run-the-proof-gate) | M5d v3 proof-gated over any suite | see §3 |
-| [4. Custom C program](#4-run-models-against-your-own-c-program) | your program traced natively, run on any model, gated, debugged | 2–5 min for a small program |
+| [3. Run the proof gate](#3-run-the-proof-gate) | M5d v3 proof-gated over any suite | 7–8 min (~3 min reusing a certificate) |
+| [4. Custom C program](#4-run-models-against-your-own-c-program) | your program traced natively, run on any model, gated, debugged | ~3 min (+8 min with the gate) |
 | [5. Full matrix](#5-run-the-full-matrix) | every model × every routine suite, report, board, registry | ~25 min |
 | [6. Look at results](#6-look-at-results) | matrix, compute board, MLflow UI | seconds |
 | [7. Debug a failure](#7-debug-a-failure) | first divergence, MDB recording | 1–2 min |
@@ -29,7 +29,7 @@ Rules that apply everywhere (full list in `CLAUDE.md`):
 
 ```sh
 just tunnels        # ssh forwards: mrun 19025, MLflow 15000, MinIO 19010 (the laptop's Python can't reach 192.168.68.x)
-just pull           # frozen artifacts via dvc pull (first time on a machine: rsync from Beast origins)
+just pull           # frozen artifacts via dvc pull from Beast MinIO (falls back to rsync from Beast origins)
 just status         # references on Beast, every local eval, frozen artifacts
 ```
 
@@ -47,10 +47,11 @@ A model is family code (`models/<family>/`) plus an instance config (`conf/model
 # 1. edit the family code or the instance config
 $EDITOR models/m5d/adapter.py            # or models/<family>/src/..., conf/model/m5d.yaml
 
-# 2. smoke: tiny_hello only, no warm repeats, one short lease (~1-2 min end to end)
+# 2. smoke: tiny_hello only, no warm repeats, one short lease (measured: 4 s for unicorn; m5d adds a ~4 s model load)
 just smoke m5d
 
-# 3. the real eval: one model, one suite (~1 min on c_apps; ~10-20 min for m5d on dev, since programs run to 1M steps)
+# 3. the real eval: one model, one suite (measured: unicorn c_apps 5 s; m5d on dev ~10-20 min, since programs run to 1M steps)
+#    run eval after smoke before committing: smoke writes metrics for a single program
 just eval m5d c_apps
 just eval m5d dev
 
@@ -66,11 +67,15 @@ just register m5d
 
 What a cell measures: status, exact-prefix steps (instructions that matched native before the first divergence), the first divergence (step, RIP, 15-byte window, differing registers and flags), cold and warm wall time, µs/step, CPU s, peak RSS, slowdown against the native binary, and whether repeats agreed.
 
+**Noise.** Re-running an eval always moves timing metrics a little (µs/step, CPU s) and rewrites tracked files (`outputs/metrics/<model>.json`, and `outputs/report/*` after `report`/`board`). `dvc metrics diff` shows the size of the change. `git checkout -- outputs/metrics outputs/report` discards a run you don't want to keep.
+
+**Reading a cell.** A successful run reports exact prefix `N-1` of `N` native steps. The native trace stores `N` states (the initial state plus one per instruction), which is `N-1` instructions, so `87445 of 87446` is a complete, exact run. Step coverage divides by `N-1`.
+
 **A changed artifact is a new model, not an overwrite.** Copy the config and change what differs:
 
 ```sh
 cp conf/model/de_mamba.yaml conf/model/de_mamba_v2.yaml
-$EDITOR conf/model/de_mamba_v2.yaml        # name, artifact, artifact_sha256, description
+$EDITOR conf/model/de_mamba_v2.yaml        # name, artifact, description (and artifact_sha256 where the config has one, e.g. m5d)
 $EDITOR params.yaml                        # add de_mamba_v2: {family: direct_effect, artifact: ...} so `dvc repro` knows it
 ../common/bin/common exec dvc add artifacts/frozen/de_mamba_v2 && just push
 just eval de_mamba_v2 c_apps
@@ -104,7 +109,7 @@ just eval de_mamba c_apps model.name=de_mamba_s674 model.artifact=outputs/train/
 
 # keep it: freeze + config + register
 mkdir -p artifacts/frozen/de_mamba_s674 && cp -r outputs/train/de_mamba_s674/artifact/* artifacts/frozen/de_mamba_s674/
-cp conf/model/de_mamba.yaml conf/model/de_mamba_s674.yaml   # set name, artifact, artifact_sha256, train.seed
+cp conf/model/de_mamba.yaml conf/model/de_mamba_s674.yaml   # set name, artifact, train.seed
 ../common/bin/common exec dvc add artifacts/frozen/de_mamba_s674 && just push
 just eval de_mamba_s674 c_apps && just register de_mamba_s674
 ```
@@ -155,7 +160,7 @@ just gate c_apps gate.cert_manifest=runs/gate/m5d_v3-c_apps/<stamp>/cert-manifes
 just gate c_apps gate.machine=/mnt/hdd8tb/uv-archive-stage/<new>/machine_full.pkl gate.de_ref=<runtime commit> gate.label=m5e
 ```
 
-Time (*measured*, c_apps, 2026-10-30): about 7 min end to end. Proving took 188 s on Beast (job-f43c311f9544) and the gated runs 140 s (job-5f9ac1a33a55), plus staging. Most of the proving time goes to the 22 M4 programs that always come along; a small custom suite adds little. Reusing a certificate (`gate.cert_manifest=...`) skips proving: about 3 min. The certificate must already cover the suite's static instructions; a program the prove step never saw has no proved path and simply stops.
+Time (*measured*, 2026-10-30): about 7 min end to end on c_apps and 8 min on a 2-program custom suite (prove job-ddf0312e20a8, run job-2f281a5a51b4). Proving took 188 s on Beast (job-f43c311f9544) and the gated runs 140 s (job-5f9ac1a33a55), plus staging. Most of the proving time goes to the 22 M4 programs that always come along; a small custom suite adds little. Reusing a certificate (`gate.cert_manifest=...`) skips proving: about 3 min. The certificate must already cover the suite's static instructions; a program the prove step never saw has no proved path and simply stops.
 
 Result on c_apps (same jobs): the gated machine completed 3 of 4 programs, step-exact and with correct stdout. M5d alone completed 1 of 4, and the hybrid alone 2 of 4. 215 static instructions were proved, 0 refuted; 17 have no learned record. `large_records-Os` stops at an `inc` that neither path has proved.
 
@@ -191,12 +196,23 @@ variants:
 max_trace_steps: 5000000
 EOF
 
-just reference mine                       # compile + native ptrace trace on Beast (~10-70 s per suite, measured)
-just matrix "[unicorn,m5d,de_mamba]" "[mine]"   # any set of models, one lease
+just reference mine                       # compile + native ptrace trace on Beast (measured: 7 s for collatz)
+just matrix "[unicorn,m5d,de_mamba]" "[mine]"   # any set of models, one lease (measured: 2 min 18 s)
 just report && just board local
-just gate mine                            # is it provable? where does M5d need the hybrid?
-just debug m5d mine collatz-O2            # first divergence/stop for one program
+just gate mine                            # is it provable? where does M5d need the hybrid? (measured: 8 min)
+just debug m5d mine collatz-O0            # why m5d stopped: abstain at the `test` at 0x4011ca, record 10004
 ```
+
+What the test run of this example measured (2026-10-30):
+
+| | collatz-O0 (166,484 steps) | collatz-O2 (87,446 steps) |
+|---|---|---|
+| unicorn | success | success |
+| m5d | abstain at step 44 (predicate, record 10004) | success, step-exact |
+| de_mamba | wrong_output | wrong_output |
+| gated (G0) | success: hybrid covers the `test` | success |
+
+`debug` is only informative for cells that fail; a successful cell has no divergence to show.
 
 Program tags are `<program>-<variant>` (`collatz-O0`, `collatz-O2`). If `just reference` reports `complete: false`, the program hit `max_trace_steps` or made a syscall other than write/exit.
 
@@ -226,7 +242,7 @@ just push               # outputs and artifacts to Beast MinIO (s3://experiments
 
 Time (*measured*, 2026-10-30): the long lease of the last full matrix took 21.5 min: unicorn, m5d and the 3 DE models on all three suites (job-21d9cd97ed2e). The 7 selector models on all three suites took 4–5 min (job-355c0d592319). All 12 models on c_apps alone took 1.7 min (job-a00538e93aeb). Unicorn and M5d dominate, because they actually run the 0.1–1.4M-step programs. Models that stop at step 1 finish in milliseconds.
 
-Quick checks that the pipeline works (well under 15 min):
+Quick checks that the pipeline works (measured: 3 min 20 s for the 4×4 matrix, job-5fd4aec809c8):
 
 ```sh
 just matrix "[unicorn,m5d,de_mamba,sel_spf]" "[c_apps]"   # 4 models x 4 programs
@@ -240,18 +256,18 @@ just smoke unicorn
 | what | command / place |
 |---|---|
 | correctness matrix | `just report` → `outputs/report/matrix.md` (success/programs · step coverage · µs/step per model × suite) |
-| correctness + compute board | `just board` (registry) or `just board local` (working tree) → `outputs/report/board.{md,html,json}`. Columns: success, trace-exact, step coverage, µs/step, × native, load s, wall s, CPU s, steps run, peak RSS, params, learned records, artifact MB, abstain/refused/wrong, registry version, git sha. Open the HTML for sortable columns and a suite filter. |
+| correctness + compute board | `just board` (registry) or `just board local` (working tree) → `outputs/report/board.{md,html,json}`. Columns: success, trace-exact, step coverage, µs/step, × native, load s, wall s, CPU s, steps run, peak RSS, params, learned records, artifact MB, abstain/refused/wrong, registry version, git sha. Open the HTML for sortable columns and a suite filter. The registry board shows versions registered after 2026-10-30; earlier versions lack wall/CPU/steps totals. The local board has no registry version or git sha. |
 | one model × suite | `outputs/eval/<model>/<suite>/summary.md` (per program: status, exact prefix, first divergence, wall, µs/step, × native) and `cells/<program>.json` (raw evidence) |
 | gate | `outputs/gate/<label>/<suite>/summary.md` |
 | MLflow UI | `open http://127.0.0.1:15000`. Experiment `isa-bench`: select runs → Compare for a metric table. Models → `isa-bench-<model>` → alias `latest-eval`. The version tags carry the headline numbers; the run's artifacts hold `model/` (artifact, adapter, config) and `results/<suite>/` (cells, summaries). |
-| metric history | `../common/bin/common exec dvc metrics show` / `dvc metrics diff HEAD~1` |
+| metric history | `../common/bin/common exec dvc metrics show --md outputs/metrics/m5d.json` (one model; the unfiltered table is very wide) / `dvc metrics diff HEAD~1` |
 
 ---
 
 ## 7. Debug a failure
 
 ```sh
-just debug de_mamba c_apps medium_sort-Os     # report.md + bundle.json + MDB recording of the divergent forward
+just debug de_mamba c_apps medium_sort-Os     # report.md, bundle.json, info.json + MDB recording of the divergent forward
 just mdb debug/de_mamba/c_apps/medium_sort-Os/root-recipe   # interactive MDB console
 ```
 

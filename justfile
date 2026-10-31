@@ -9,9 +9,9 @@ dvc := "../common/bin/common exec dvc"
 tunnels:
     scripts/tunnels.sh
 
-# frozen artifacts: dvc pull, or seed them from Beast origins the first time
+# frozen artifacts: dvc pull from Beast MinIO, or seed them from Beast origins if the remote lacks them
 pull:
-    {{dvc}} pull artifacts || scripts/pull_artifacts.sh
+    {{dvc}} pull artifacts/frozen/*.dvc || scripts/pull_artifacts.sh
 
 status:
     {{py}} stage=status
@@ -55,7 +55,7 @@ debug model suite="c_apps" program="":
 
 # open the MDB discovery console on a debug recipe
 mdb recipe:
-    PYTHONPATH=../saturn-pub/packages/mdb/src ../common/bin/common exec python -m mdb discovery replay {{recipe}} --interactive --output {{recipe}}/../console
+    PYTHONPATH=../saturn-pub/packages/mdb/src ../common/bin/common exec python -m mdb discovery replay {{recipe}} --interactive --output {{recipe}}/../console-$(date +%Y%m%dT%H%M%S)
 
 train model *overrides:
     {{py}} stage=train model={{model}} {{overrides}}

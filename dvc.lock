@@ -114,8 +114,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -130,13 +130,13 @@ stages:
     outs:
     - path: outputs/eval/unicorn
       hash: md5
-      md5: d39c775b06fa3502cabd8e011e763256.dir
-      size: 80986
+      md5: c44d194c41d0654125acfd346c053f24.dir
+      size: 81017
       nfiles: 38
     - path: outputs/metrics/unicorn.json
       hash: md5
-      md5: eb71719810f0b05099efae95a4b8d336
-      size: 2811
+      md5: 03b32e256e984287d29afb078a0fafb8
+      size: 2815
   eval@pan_reference:
     cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
       stage=matrix models=[pan_reference] suites=[c_apps,dev,heldout_m4]
@@ -167,8 +167,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -220,8 +220,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -273,8 +273,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -326,8 +326,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -379,8 +379,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -432,8 +432,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -485,8 +485,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -501,13 +501,13 @@ stages:
     outs:
     - path: outputs/eval/sel_spf
       hash: md5
-      md5: 316410c60b5c2057d7f6a916d088a35e.dir
-      size: 93664
+      md5: 0339ea400a8f633629e8e3e3aaa447d0.dir
+      size: 93672
       nfiles: 38
     - path: outputs/metrics/sel_spf.json
       hash: md5
-      md5: 950063d23026ab7c5cfa85d7cd251748
-      size: 2769
+      md5: f78d3b7c4c25ca13c64a5e09ffd0e934
+      size: 2768
   eval@de_nn:
     cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
       stage=matrix models=[de_nn] suites=[c_apps,dev,heldout_m4]
@@ -538,8 +538,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -591,8 +591,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -607,13 +607,13 @@ stages:
     outs:
     - path: outputs/eval/de_mamba
       hash: md5
-      md5: af11e8f7c6c46531eec62c9e907e5219.dir
-      size: 142550
+      md5: 66cc737973ec2b39b01343a709a032c3.dir
+      size: 142586
       nfiles: 38
     - path: outputs/metrics/de_mamba.json
       hash: md5
-      md5: cbf66f1299ae9b16192791d24d9d8bad
-      size: 2673
+      md5: 30d5184ad069153479156246bae83883
+      size: 2664
   eval@de_hydra:
     cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
       stage=matrix models=[de_hydra] suites=[c_apps,dev,heldout_m4]
@@ -644,8 +644,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -697,8 +697,8 @@ stages:
       nfiles: 250
     - path: src/isa_bench
       hash: md5
-      md5: d1171cc787ced9f52a3f038eade22f16.dir
-      size: 91374
+      md5: 626278d2f6c283337909ed21545492d3.dir
+      size: 91450
       nfiles: 13
     params:
       conf/config.yaml:
@@ -713,21 +713,21 @@ stages:
     outs:
     - path: outputs/eval/m5d
       hash: md5
-      md5: 94e5ae73fb5da587c2e6f7c6649262b2.dir
-      size: 88531
+      md5: 06837c9a7ee25c31c09536fd0293789b.dir
+      size: 88545
       nfiles: 38
     - path: outputs/metrics/m5d.json
       hash: md5
-      md5: a5476b31171b5de378d82572b9e08fe4
-      size: 2982
+      md5: 1ed924a2a545ecad9a8ad83751b54774
+      size: 2981
   report:
     cmd: PYTHONPATH=src ../common/bin/common exec python -m isa_bench 
       stage=report
     deps:
     - path: outputs/eval
       hash: md5
-      md5: 3af1842665b6cf4d15a7e59734a9eb2f.dir
-      size: 1235852
+      md5: 840785f558f854f0085db604db0740f5.dir
+      size: 1235941
       nfiles: 457
     - path: src/isa_bench/cli.py
       hash: md5
@@ -736,9 +736,9 @@ stages:
     outs:
     - path: outputs/report/matrix.json
       hash: md5
-      md5: 43791f4e595b5b99dca20c5147bfd4c7
-      size: 27227
+      md5: 4777e3443347c42e4ae41396291c2f85
+      size: 30865
     - path: outputs/report/matrix.md
       hash: md5
-      md5: 15f139a878c2b3188a1f825577057d27
+      md5: c9ebbab9841b72d6f819c6805838d6d3
       size: 1129

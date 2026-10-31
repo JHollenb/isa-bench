@@ -1,0 +1,1042 @@
+# Debugging learned x86 executors with MDB
+
+isa-bench tells you *where* a learned CPU goes wrong: which step, which register, which bit. MDB (the model debugger in `../saturn-pub/packages/mdb`) tells you *why*. MDB turns that one wrong forward pass into a program you can step through. You can set breakpoints at its MLP boundaries, fork it, edit any intermediate value and replay the rest. You can also check the result against a symbol table that was recovered for the same checkpoint.
+
+Here is what that looks like on real failures. Every result in this list was produced on the laptop for this guide, one forward at a time:
+
+- **One untrained opcode, three different guesses.** The second instruction of every compiled `dev` program is `and $-16,%rsp`, an encoding none of the direct-effect models was trained on. It is the first divergence on all 10 of them. MDB shows each model decodes the operands perfectly (destination RSP, immediate `0xfffffffffffffff0`, length 4) and only guesses the operation wrong. The Mamba runs it as `add`; the NN and Hydra run it as `sub`.
+- **Two numbers out of 256.** Fork the Mamba's forward at the decoder's exit and paste just 2 of the 256 decoder coordinates from a `sub` encoding. The prediction flips from `RSP-16` to `RSP+16`. The same 2 coordinates do *not* turn a real `sub` into `add`, so they are a tipping point, not an opcode switch. MDB shows you both.
+- **A symbol table that predicts compiled C.** The R3 Mamba's recovered symbol table describes `add $1,%reg` as a 3-bit raw-byte route plus a bit-serial XOR/AND carry. It predicts the model's output exactly on 5/5 `add $1` instructions taken from real isa-bench programs with their native register state. The model also reproduces all 3 of the table's recorded exceptions bit for bit. One of its flag rules fails on a fresh input where the model is actually right.
+- **Finding the bit that's wrong.** One recorded failure (RDI bit 32 set, logit +0.07) is fixed by scaling a single site, `mixers.2.out_proj`, by 0.9. The fix reproduces on 2 of 3 failing inputs and breaks none of 5 correct ones.
+- **Save today, resume next week.** A session with an edited branch saves to a content-addressed frontier (15.5 MB). It resumes in a fresh process at the same cursor, with the same outputs and the full work history, without re-running the prefix.
+
+**Labels.** *Measured here* means run while writing this guide on 2026-10-30: laptop CPU, FP32, one forward at a time, outputs pasted and trimmed. *Reported* means taken from the cited doc or post. Nothing below is labelled measured unless it was run.
+
+---
+
+## Contents
+
+0. [What MDB covers per model](#0-what-mdb-covers-per-model)
+1. [Quickstart](#1-quickstart)
+2. [The mental model in one screen](#2-the-mental-model-in-one-screen)
+3. [Use case: why did the model mispredict step N?](#3-use-case-why-did-the-model-mispredict-step-n)
+4. [Use case: which feature drove it? Fork and edit](#4-use-case-which-feature-drove-it-fork-and-edit)
+5. [Use case: what does the symbol table predict, and was it right?](#5-use-case-what-does-the-symbol-table-predict-and-was-it-right)
+6. [Use case: run the model as a program, instruction by instruction](#6-use-case-run-the-model-as-a-program-instruction-by-instruction)
+7. [Use case: compare checkpoints](#7-use-case-compare-checkpoints)
+8. [Use case: save a frontier, resume later, audit the journal](#8-use-case-save-a-frontier-resume-later-audit-the-journal)
+9. [Where MDB goes further (reported)](#9-where-mdb-goes-further-reported)
+10. [Cheat sheet](#10-cheat-sheet)
+11. [Limits, gotchas, next steps](#11-limits-gotchas-next-steps)
+- [Appendix: the scripts behind the measured examples](#appendix-the-scripts-behind-the-measured-examples)
+
+---
+
+## 0. What MDB covers per model
+
+| model | what it is | MDB today | what you get |
+|---|---|---|---|
+| `de_mamba` | R3 direct-effect Mamba (3 scan mixers over the 64 bit positions), checkpoint `9399e921…` | **Full.** `just debug` writes a recipe (571 ATen ops); console, Python API, instruction driver. | Recovered **symbol table** (`../isa/outputs/moonshot-r3-mamba/`). The debug report links it automatically when the hash matches. |
+| `de_nn` | R3 direct-effect MLP-mixer, checkpoint `30caebe4…` | **Full** (286 ops, 11 MLP sites). | No symbol table. The same checkpoint carries the reported NN value-edit results (§9). |
+| `de_hydra` | R3 direct-effect bidirectional scans, checkpoint `0dc718f4…` | **Full** (655 ops). | No symbol table. |
+| `m5d` | M5d-final v3: a byte-trie of induced records, not a neural forward | **No.** There is no tensor program to replay. | `just debug` report: the abstain point and the native disassembly. |
+| `sel_*` | Six learned selectors over the frozen PAN runtime | **Not wired.** They are torch models, but `stage=debug` records only direct-effect forwards. | `just debug` report: the refusal and the selector-vs-typed-adapter disagreement. |
+| `unicorn` | Emulator control | n/a | Always 100% trace-exact; if it isn't, the harness is wrong. |
+
+The three direct-effect checkpoints share one ABI: a 15-byte window, 8 GPRs as 8×64 bits and CF/ZF/SF/OF in; 11 heads out. So every recipe, script and decoder in this guide works on all three. Model-specific site names come from the recipe's own catalog.
+
+## 1. Quickstart
+
+The commands below run from the repo root. Single forwards and console replays are fine on the laptop. Anything bigger (sweeps, evals, training) goes to Beast through mrun (`CLAUDE.md` rule 1). Keep at most one heavy local Python process at a time.
+
+```sh
+# convenience wrapper (the examples below were run in this expanded form)
+mdb() { PYTHONPATH=../saturn-pub/packages/mdb/src ../common/bin/common exec python -m mdb "$@"; }
+```
+
+**Step 1. Get a first-divergence recipe.** This needs eval cells under `outputs/eval/<model>/<suite>/cells/`. It records one forward locally. *Measured here:* 18.5 s wall, mostly environment start-up.
+
+```text
+$ just debug de_mamba dev fib-O2
+{"debug_dir": "debug/de_mamba/dev/fib-O2", "status": "wrong_output", "exact_prefix_steps": 1,
+ "mdb": {"root_recipe": "debug/de_mamba/dev/fib-O2/root-recipe",
+         "checkpoint_sha256": "9399e921776d7a5437c5bbd51bfc1928f09d2ddea444fe2aa1c9cf282baf7f1e",
+         "symbol_table": "../isa/outputs/moonshot-r3-mamba/catalog.json", "operations": 571}}
+```
+
+`debug/de_mamba/dev/fib-O2/report.md` (trimmed):
+
+```text
+Status **wrong_output**; exact prefix 1 of 150753 native steps.
+## First divergence
+Step 1 at 0x401003, window `4883e4f0e8a403000089c7b83c0000`.
+| field | model | native |
+| CF | 1 | 0 |
+| RSP | 0x7fffffffe350 | 0x7fffffffe360 |
+{"predicted_length": 4, "store": false, "syscall": false}
+## Native code around RIP
+     401000:	xor    %rbp,%rbp
+=>   401003:	and    $0xfffffffffffffff0,%rsp
+     401007:	call   4013b0 <cmain>
+```
+
+**Step 2. Open it.** The interactive console reads one command per line. The prompt shows the focused lane and the default unit:
+
+```text
+$ printf 'break module:post.1 exit --id p1\ncontinue\ncall {"operation":"capabilities"}\nquit\n' \
+    | just mdb debug/de_mamba/dev/fib-O2/root-recipe
+(discovery-v1 | lane_00 | unit=law) { ... "installed_id": "p1", ... }
+(discovery-v1 | lane_00 | unit=law) { ... "replay_native_operations": 369 ... }
+(discovery-v1 | lane_00 | unit=law) {
+  "act_value_specs": ["zeros_like", "scale"],
+  "checkpoint_support": ["live", "native-durable"],
+  "default_unit": "law",
+  "direct_eager_pause": false,
+  "instruction_drivers": ["r3-predicted-length"],
+  "motion_units": ["op", "math", "law", "update", "forward", "instruction"],
+  ...
+{"commands_executed": 3, "handler_hits": 0, "ok": true, "output": "debug/de_mamba/dev/fib-O2/root-recipe/../console"}
+```
+
+> `just mdb` used to write to a fixed `<recipe>/../console` folder, so a second run on the same recipe failed with `FileExistsError` (*measured here*). It now writes a timestamped `console-<stamp>` folder each time. MDB itself still refuses to overwrite an output folder, so a hand-run `mdb discovery replay` needs a new `--output` every time.
+
+**Step 3. Script it.** Anything you type interactively also works as `--command` (repeatable) or as a `--script` file. Every run writes `result.json` plus a hash-chained journal:
+
+```text
+$ mdb discovery replay debug/de_mamba/c_apps/medium_sort-Os/root-recipe \
+      --command status --command catalog --output debug/scratch/ex01
+{"commands_executed": 2, "handler_hits": 0, "ok": true, "output": "debug/scratch/ex01"}
+```
+
+`catalog` lists 59 structural sites with their ATen entry/exit cursors. These are the lines that matter, summarized from `result.json`:
+
+```text
+program:8303c261…  (program binding; site ids are bound to this recording)
+mlp_001 mlp decoder 2 8          (window bits -> 256-d instruction vector)
+mlp_002 mlp post.0 228 238
+mlp_003 mlp post.1 359 369
+mlp_004 mlp post.2 490 500
+mlp_005 mlp flags 541 546
+affine_016 affine mixers.0.out_proj 223 227      affine_022 … mixers.1.out_proj 354 358
+affine_028 affine mixers.2.out_proj 485 489
+affine_038 affine length 552 554                 affine_042 affine store_flag 566 568
+update_001/002/003 residual 238/369/500 -> 239/370/501
+```
+
+**Step 4. Read the outputs.** `inspect outputs` returns the 11 raw heads (about 17 KB of logits). A ~35-line decoder turns them into x86 state; the [appendix](#appendix-the-scripts-behind-the-measured-examples) has it, and it uses no torch:
+
+```text
+$ python3 debug/scratch/decode.py debug/scratch/tour/result.json
+{"length": 4, "length_logits_top3": [[29.25, 4], [5.23, 7], [0.2, 5]],
+ "regs": {"RSP": "0x7fffffffe350", ...}, "flags": {"CF": 1, "ZF": 0, "SF": 0, "OF": 0},
+ "store": false, "store_logit": -17.54, "syscall": false,
+ "dest": "RSP", "src": "RSP", "width": 64, "imm": "0xfffffffffffffff0"}
+```
+
+The replay reproduces the eval cell exactly (RSP `…e350`, CF 1, length 4). The auxiliary heads (`dest`, `src`, `width`, `imm`) tell you what the model *decoded*, which the eval cell never shows.
+
+## 2. The mental model in one screen
+
+- **One forward = one instruction.** Inputs: `window_bits [1,120]` (15 bytes, LSB first), `reg_bits [1,8,64]` (RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI) and `flags [1,4]` (CF, ZF, SF, OF). Outputs: `regs` and `flags` logits (bit = logit > 0), `length` (argmax + 1), `store`/`store_addr`/`store_value`, `syscall`, and the aux heads `dest`, `src`, `width`, `imm`. There is no memory-read input and no state carried between calls. Source: `saturn-pub/packages/mdb/docs/ISA-DISCOVERY-DEBUGGER.md`.
+- **A recipe is a sealed recording plus its roots, not a paused process.** `root-recipe/` holds `trace.json` (the ATen program: 571 events and 676 values for the Mamba) and `roots.pt` (inputs and weights), hashed in `capture.json`. Every replay starts at event 0 and re-executes the original primitives (`native_frontier_restorable: false`). Source: `src/mdb/discovery_cli.py`.
+- **Sites and selectors.** The catalog names sites generically by kind: `mlp_00N`, `affine_0NN`, `gelu_…`, `normalize_…`, and `update_…` (residual). Address them as `mlp_003`, `module:post.1`, `mlp_003:output` / `:input`, or a raw SSA id `v000430`. `alias name = selector` adds your own names. Site and value ids are bound to one recording's `program:<hash>`; use the names, not the numbers, across recordings.
+- **Clocks.** `op` (one ATen primitive), `math` (a stage such as affine or GELU), `law` (a whole MLP, before the residual add), `update` (the residual add), `forward` (all heads) and `instruction` (decode and commit, which needs a driver; §6). Motions: `step`, `next`, `into`, `finish`, `until`, `continue`. Breakpoints are checked between primitives.
+  Each unit moves the cursor a different distance (*measured here*, `debug/scratch/scripts/clocks.mdb` on the `and` recipe; ops = ATen primitives executed):
+
+  ```text
+  step op          -> aten_next 1,   ops run 1    [mul]
+  step math        -> aten_next 4,   ops run 3    [sub, t, addmm]         decoder.0 affine
+  step math        -> aten_next 5,   ops run 1    [gelu]
+  step law         -> aten_next 8,   ops run 3    (rest of the decoder MLP)
+  into law         -> aten_next 228, ops run 220  (head prep + mixer 0, to post.0's entry)
+  step math        -> aten_next 229, ops run 1    [native_layer_norm]
+  finish law       -> aten_next 238, ops run 9    (post.0 MLP output, residual not yet added)
+  step update      -> aten_next 239, ops run 1    [add]                   the residual
+  until mlp_004    -> aten_next 500, ops run 261
+  step forward     -> aten_next 571, ops run 71   stop [motion_target, forward_complete]
+  ```
+- **History.** `capture NAME` makes a cut. `restore NAME` returns to it. `fork NAME` + `select NAME` branches from the current head (or from any cut via `call`). Branches are independent replays that share weights.
+- **Edits (Acts).** `act` replaces or adds to a *produced, live, not-yet-consumed* tensor. Use `value_spec` `zeros_like` or `scale`, or a literal `value`. Roots (inputs and **weights**) are read-only, so the discovery console edits activations, not parameters. Source: `src/mdb/discovery.py`, `src/mdb/discovery_runtime.py`.
+- **Not interpretation.** Names like `mlp_003` say where a computation happens, not what it means. Semantic claims come from the symbol table's panels or from your own interventions (§5).
+
+## 3. Use case: why did the model mispredict step N?
+
+**The symptom (read from the eval cells `outputs/eval/*/dev/cells/*.json`, produced on Beast by mrun; not re-run here).** All three direct-effect models diverge at step 1, `0x401003`, on all 10 `dev` programs. The instruction is `and $-16,%rsp` (`48 83 e4 f0`). RSP is already 16-aligned (`…e360`), so native leaves it unchanged with CF = 0.
+
+| model | predicted RSP | predicted CF | length |
+|---|---|---|---|
+| de_mamba | `0x7fffffffe350` (−16) | 1 | 4 |
+| de_nn | `0x7fffffffe370` (+16) | 1 | 4 |
+| de_hydra | `0x7fffffffe370` (+16) | 1 | 4 |
+| native | `0x7fffffffe360` | 0 | 4 |
+
+**Step 1. Did the model decode the instruction?** Yes. The decoded outputs above show `dest RSP`, `width 64`, `imm 0xfffffffffffffff0` and length 4, with a large margin (length logit 29.25 against 5.23 for the runner-up). The operands are right; only the operation is wrong. `RSP + (-16)` with CF = 1 is exactly what `add $-16,%rsp` produces.
+
+**Step 2. Is `and r64, imm8` something the model ever saw?** No. The R3 training forms are in `models/direct_effect/src/direct_effect/profile.py` (`FORMS`) and `v2.py`: `add`/`sub` `r64, imm8` (`83 /0`, `83 /5`), AL8 logic ops, `mov` forms, `xor r32,r32` and `mov [rsp],r64`. There is no `83 /4`. So the question is not "what bug?" but "what does the model map an unseen ModRM `/4` to?"
+
+**Step 3. Ask all eight `/r` values on all three checkpoints** (*measured here*, 24 single forwards, `lab.py sweep_ext`). This keeps the real window and the native before-state and changes only the ModRM reg field:
+
+```text
+{"window": "4883e4f0e8a403000089c7b83c0000", "RSP_before": "0x7fffffffe360", ...}
+{"model": "de_mamba", "/0 add": "RSP-16 CF=1 len=4", "/1 or": "RSP-16 CF=1 len=4", "/2 adc": "RSP+0 CF=1 len=4",
+  "/3 sbb": "RSP+0 CF=1 len=4", "/4 and": "RSP-16 CF=1 len=4", "/5 sub": "RSP+16 CF=1 len=4",
+  "/6 xor": "RSP+0 CF=1 len=4", "/7 cmp": "RSP+0 CF=1 len=4"}
+{"model": "de_nn",    ... "/4 and": "RSP+16 CF=1 len=4", "/5 sub": "RSP+16 CF=1 len=4", ...}
+{"model": "de_hydra", ... "/4 and": "RSP+16 CF=1 len=4", "/5 sub": "RSP+16 CF=1 len=4", ...}
+```
+
+The two trained encodings (`/0` add, `/5` sub) are right on every checkpoint. On unseen encodings the models extrapolate: `/1` behaves like add, and `/2 /3 /6 /7` leave RSP alone. `/4` is where the checkpoints disagree. `/4` (`100`) is one bit from `/0` (`000`) and one bit from `/5` (`101`); the Mamba lands on the add side and the NN and Hydra on the sub side.
+
+**Step 4. Which inputs can a head see at all?** `mdb forward-symbols` reads `trace.json` without torch and lists each root's `output_ancestry`, i.e. which heads it can reach (*measured here*):
+
+```text
+$ mdb forward-symbols debug/de_mamba/dev/fib-O2/root-recipe/trace.json --readable
+forward readable program: 676 values, 571 operations
+roots:
+  v000000 = input ; tensor shape=[1, 120] ... output_ancestry=/dest,/flags,/imm,/length,/regs,/src,/store,/store_addr,/store_value,/syscall,/width
+  v000025 = input ; tensor shape=[1, 8, 64] ... output_ancestry=/flags,/imm,/regs,/store_addr,/store_value
+$ mdb forward-symbols debug/de_mamba/dev/fib-O2/root-recipe/trace.json --value v000012
+v000012: operation-output  shape=[1,256]  dtype=torch.float32
+producer: event 7 aten.gelu.default  @ decoder.3
+uses: [9, 11, 37, 80, 85, 510, 540, 551, 553, 555, 567]
+```
+
+The register input `v000025` never reaches `length`, `store`, `syscall`, `width`, `dest` or `src`. Those decisions are functions of the window bytes alone, routed through the decoder's 256-d output `v000012`, which feeds `dest`, `src`, `length`, `store_flag`, `syscall`, `width_head`, `offset_head`, the flag path, and two query paths into the register computation (its `uses` list). That is a structural fact read from the recording, not an inference. It also tells you where to intervene next: the decoder vector.
+
+**The same recipe for `push %rax`.** `medium_sort-Os` dies at step 0 on `push %rax` (`50`). The model predicts length 10 and no store, then store-faults later. Decoding its recipe shows a very different picture from the confident `and` (*measured here*):
+
+```text
+$ mdb discovery replay debug/de_mamba/c_apps/medium_sort-Os/root-recipe \
+      --command "step forward" --command "inspect outputs" --output debug/scratch/push
+{"length": 10, "length_logits_top3": [[6.87, 10], [6.02, 3], [5.52, 6]], ... "RSP": "0x7fffffffe350",
+ "flag_logits": [-11.16, -12.24, -10.78, -10.72], "store": false, "store_logit": -8.58,
+ "dest": "RAX", "src": "RSI", "width": 64, "imm": "0x0"}
+```
+
+The length head is nearly flat (6.87 / 6.02 / 5.52) instead of 29 against 5. *Interpretation:* that is the signature of an input far outside training. Push is not one of the R3 forms at all, while `and` is one bit away from two trained forms.
+
+## 4. Use case: which feature drove it? Fork and edit
+
+Since the operation decision lives in the decoder vector (§3 step 4), test that directly. Pause the `and` forward at the decoder's exit, fork, replace the vector, and replay the rest.
+
+**From the console (*measured here*).** This script uses only built-in commands. It breaks at the decoder's exit, captures there, finishes the original forward, then forks a branch with the decoder zeroed and saves that branch durably:
+
+```text
+# debug/scratch/scripts/and_tour.mdb
+interface mdb-discovery-v1
+alias dec = module:decoder
+break dec exit --id dec_exit
+continue
+capture at_decoder
+inspect dec:output
+call {"operation":"break","payload":{"action":"disable","id":"dec_exit"}}
+step forward
+inspect outputs
+restore at_decoder
+fork no_decoder
+select no_decoder
+call {"operation":"act","payload":{"selector":"dec:output","value_spec":{"kind":"zeros_like"}}}
+step forward
+inspect outputs
+save-frontier debug/scratch/frontier-store
+```
+
+```text
+$ mdb discovery replay debug/de_mamba/dev/fib-O2/root-recipe --script debug/scratch/scripts/and_tour.mdb --output debug/scratch/and_tour
+{"commands_executed": 15, "handler_hits": 0, "ok": true, "output": "debug/scratch/and_tour"}
+```
+
+Per-command trace (summarized from `result.json`: line, command, stop causes, ATen cursor, branch, receipt):
+
+```text
+4  continue                 stop [breakpoint:dec_exit]   aten_next 8    main
+5  capture at_decoder       cut_000003                   aten_next 8
+8  step forward             [motion_target, forward_complete]  aten_next 571
+10 restore at_decoder                                    aten_next 8
+11 fork no_decoder / 12 select no_decoder                aten_next 8    no_decoder
+13 act dec:output zeros_like   receipt value_id v000012
+14 step forward             [motion_target, forward_complete]  aten_next 571  no_decoder
+16 save-frontier            durable cut edfbec91…, admitted_bytes 15529316
+```
+
+Decoded heads of the two branches:
+
+```text
+main:       length 4, RSP 0x7fffffffe350, CF 1, ZF 0, store false, syscall false, dest RSP, imm 0xfffffffffffffff0
+no_decoder: length 1, RSP 0x7fffffffe360, CF 0, ZF 1, store false, syscall true,  dest RSP, src RAX, imm 0x0
+```
+
+With no instruction vector, the model leaves the registers alone, predicts length 1 and raises `syscall`. That is a different wrong instruction, not a fix.
+
+**Breakpoint handlers.** The example script shipped with MDB, `../saturn-pub/packages/mdb/examples/discovery/post1.mdb`, runs unchanged on any of these recipes. It installs an `on-hit` handler that captures and inspects at `post.1`'s exit, then forks a branch with that MLP's output zeroed (*measured here*):
+
+```text
+$ mdb discovery replay debug/de_mamba/dev/fib-O2/root-recipe \
+      --script ../saturn-pub/packages/mdb/examples/discovery/post1.mdb --output debug/scratch/post1
+{"commands_executed": 14, "handler_hits": 1, "ok": true, "output": "debug/scratch/post1"}
+zero_post1 branch: length 4, RSP 0x7fffffffe371, CF 1   (baseline RSP 0x7fffffffe350)
+```
+
+Removing post.1's law corrupts several low RSP bits but leaves the length alone. That fits §3: the length head reads the decoder vector directly and never passes through the post-MLPs.
+
+**Transplants and coordinate pastes (Python API, *measured here*, `lab.py edit_and`).** The console has no "take this value from another recording" command yet (Saturn request `mdb-discovery-donor-lane-acts`), so this part uses the same `DiscoverySession.call()` API the console sits on. Donor decoder vectors come from MDB recordings of the same window with ModRM `/0` and `/5`, stepped to `mlp_001`'s exit and read. Each arm is a fork from the cut at the decoder's exit, then an Act, then `step forward`:
+
+```python
+s = session_for(recipe)                          # DiscoverySession + load_capture(root-recipe)
+prepare_cuts(s, ["mlp_001"])                     # break at exit, capture cut "mlp_001", disarm
+arm(s, "sub_transplant", "mlp_001",              # fork + select + act + step forward + decode
+    {"selector": "mlp_001:output", "value": donors[5].tolist()})
+```
+
+```text
+{"cuts": [["mlp_001", 8]]}
+{"recipe_decoder_equals_/4_donor": true}
+{"decoder_dim": 256, "l2(/5-/4)": 9.073, "l2(/0-/4)": 9.499,
+ "top8_coords_/5-/4": [[220, 2.97], [152, 2.72], [20, 2.68], [89, -2.38], [85, -2.05], [73, 1.95], [176, -1.86], [158, -1.66]]}
+{"arm": "baseline (no edit)",        "RSP": "0x7fffffffe350", "RSP_delta": -16, "CF": 1, "len": 4, "dest": "RSP"}
+{"arm": "decoder := /5 (sub) vector", "RSP": "0x7fffffffe370", "RSP_delta": 16,  "CF": 1, "len": 4, "act": "v000012"}
+{"arm": "decoder := /0 (add) vector", "RSP": "0x7fffffffe350", "RSP_delta": -16, "CF": 1, "len": 4, "act": "v000012"}
+{"arm": "top-1 coords of /5 pasted",  "RSP_delta": -16}
+{"arm": "top-2 coords of /5 pasted",  "RSP_delta": 16}
+{"arm": "top-4 … top-128 coords of /5 pasted", "RSP_delta": 16}      (each k in 4, 8, 16, 32, 64, 128)
+{"arm": "decoder zeroed", "RSP": "0x7fffffffe360", "RSP_delta": 0, "CF": 0, "len": 1, "imm": "0x0"}
+```
+
+The operation choice follows the transplanted vector: the `/5` vector gives sub and the `/0` vector gives add, with the window, registers and flags unchanged. Pasting just coordinates 220 and 152 from the `sub` vector is enough to tip `and` from add to sub.
+
+**Does that make 220/152 an "add vs sub" switch? Test it before naming it** (*measured here*, `lab.py selector_check`). This takes the real `sub $0x18,%rsp` at `medium_sort-Os` step 3 and pastes in the `add` encoding's values:
+
+```text
+{"instr": "sub $0x18,%rsp @0x401004", "step": 3, "window": "4883ec1889c28b1495002040008954",
+ "RSP_before": "0x7fffffffe350", "native_RSP_after": "0x7fffffffe338"}
+{"arm": "baseline",                 "RSP": "0x7fffffffe338", "RSP_delta": -24, "len": 4}
+{"arm": "paste add coord 220",      "RSP_delta": -24}
+{"arm": "paste add coord 152",      "RSP_delta": -24}
+{"arm": "paste add coords 220+152", "RSP_delta": -24}
+{"arm": "paste whole add vector",   "RSP": "0x7fffffffe368", "RSP_delta": 24, "len": 4}
+```
+
+No. On a trained `sub`, those two coordinates move nothing, though the whole `add` vector flips it. The honest reading is that the `/4` input sits near the add/sub decision boundary, and two coordinates were enough to push it across. This is one input, one checkpoint; a coordinate sweep over many windows is a Beast job, not a laptop loop.
+
+## 5. Use case: what does the symbol table predict, and was it right?
+
+**What the table says (reported).** `../isa/outputs/moonshot-r3-mamba/symbol-table.md` and `catalog.json` hold 14 entries for checkpoint `9399e921…`. They join source equations (the five MLPs and the scan) to finite measured response programs. The part that predicts outputs is a small program measured on windows like `48 83 c7 01` (x86 `add $1,%rdi`; the table itself assigns no mnemonic):
+
+| piece | rule | evidence (reported) |
+|---|---|---|
+| route | the destination slot = raw window bits 16–18 (byte 2, ModRM rm field) | 32/32 held-out route bits; destination head agrees 32/32. `../isa/outputs/response-route-r3-mamba/SUMMARY.md` |
+| word response | bit-serial over the 64 bit positions: `y = q ⊕ x`, `q_next = q·x`, `q0 = 1` (an incrementer) | 93/96 held-out target words: 32/32, 32/32 and 29/32 at prefix cuts 11, 17 and 31. 3 exceptions retained. `../isa/outputs/response-quotient-r3-mamba/SUMMARY.md` |
+| flags, length | CF = 0, ZF = 0, SF = output bit 63, OF = 0; length 4 | 8/8 four-step own-state steps (registers, flags, length). Alternatives retained. `../isa/outputs/symbolic-loop-r3-mamba/SUMMARY.md` |
+
+The table names no instruction semantics and claims nothing outside its panels. That makes it a falsifiable program: run it next to the model on inputs it never saw.
+
+**The test (*measured here*, `lab.py symtab`).** `symtab_program()` in the appendix is the three rows above as 15 lines of Python. It runs before the model. The test takes real `add $1` instructions from compiled isa-bench programs: the 15-byte fetch window from `mem.bin` (real trailing code bytes, not the panel's zero or repeated tails) and the native before-state from `trace.npz`. Then it adds the table's own three exceptions and five fresh long-carry inputs:
+
+```text
+case                               slot in                   symtab               model                exact  flags model vs symtab
+fib-O2@0x40121a step 236           RDI  0x1                  0x2                  0x2                  yes    = (native 0x2, flags =)
+checksum-O2@0x401183 step 309023   RDI  0x403000             0x403001             0x403001             yes    = (native 0x403001)
+fib-O2@0x401236 step 5255          RAX  0xe8                 0xe9                 0xe9                 yes    = (native 0xe9)
+checksum-O2@0x4010f3 step 39016    RDX  0x403000             0x403001             0x403001             yes    = (native 0x403001)
+checksum-O2@0x4010ba step 11       RCX  0x403000             0x403001             0x403001             yes    = (native 0x403001)
+sealed panel held-081              RDI  0x6e1f6958ffff7fff   0x6e1f6958ffff8000   0x6e1f6959ffff8000   bit 32
+sealed panel held-085              RDI  0x6e1f695affff7fff   0x6e1f695affff8000   0x6e1f695bffff8000   bit 32
+sealed panel held-087              RDI  0x6e1f695bffff7fff   0x6e1f695bffff8000   0x6e1f695fffff8000   bit 34
+fresh RDI=2^31-1 / 2^32-1 / 2^33-1 / 2^47-1                                                          yes ×4
+fresh RDI=2^63-1                   RDI  0x7fffffffffffffff   0x8000000000000000   0x8000000000000000   yes    model OF=1, symtab OF=0
+```
+
+(The table is condensed from `lab.py symtab` JSON lines. In every row the seven other registers were exactly equal and the model's length was 4.)
+
+What this shows:
+
+1. **The table predicts compiled C.** 5/5 real-program `add $1` instructions match the table, the model and native: target word, other registers and flags. Three of them (RAX, RDX, RCX) go through the same 3-bit route, though the q-law panel varied only RDI.
+2. **It knows its own failures.** All 3 sealed exceptions reproduce bit for bit (bits 32, 32, 34). The table recorded them rather than refitting them away, so they are known model errors, not table errors.
+3. **One rule is wrong outside its panel.** At RDI = 2^63−1, x86 sets OF (signed overflow). The model predicts OF = 1, which is correct; the table's "OF is constant 0" rule says 0. The symbol-loop summary kept alternatives for exactly this reason; this input separates them. Saturn request `mdb-computation-hypotheses-and-causal-naming` (upvoted while writing this guide) would keep counterexamples like this attached to the rule.
+
+**Drill down on an exception: where does the stray bit 32 come from?** `lab.py bit32` records held-081's exact inputs as a new recipe (`debug/scratch/held-081/root-recipe`). It sets breakpoints at the exits of the three mixer `out_proj` affines and the three post-MLPs, captures a cut at each, then forks two arms per site: zero the output, and scale it by 0.9. The bit-32 logit in each arm (*measured here*):
+
+```text
+{"cuts": [["affine_016", 227], ["mlp_002", 238], ["affine_022", 358], ["mlp_003", 369], ["affine_028", 489], ["mlp_004", 500]]}
+{"arm": "baseline",                       "RDI": "0x6e1f6959ffff8000", "bit32_logit": 0.0716}
+{"arm": "zero mixers.0.out_proj output",  "RDI": "0x35a2b15ac782c800", "bit32_logit": -7.6849}
+{"arm": "x0.9 mixers.0.out_proj output",  "RDI": "0x6e1f6959ffff8000", "bit32_logit": 0.4905}
+{"arm": "zero mlp_002 output",            "RDI": "0x6e1f6958ffff7ffe", "bit32_logit": -4.6893}
+{"arm": "x0.9 mlp_002 output",            "RDI": "0x6e1f6959ffff8000", "bit32_logit": 0.0954}
+{"arm": "zero mixers.1.out_proj output",  "RDI": "0x6e1f6958ffff7ffe", "bit32_logit": -5.5151}
+{"arm": "x0.9 mixers.1.out_proj output",  "RDI": "0x6e1f6959ffff8000", "bit32_logit": 0.1045}
+{"arm": "zero mlp_003 output",            "RDI": "0x6e1f6959ffff8000", "bit32_logit": 1.7049}
+{"arm": "x0.9 mlp_003 output",            "RDI": "0x6e1f6959ffff8000", "bit32_logit": 0.268}
+{"arm": "zero mixers.2.out_proj output",  "RDI": "0x6e1f6958ffff7fff", "bit32_logit": -3.7722}
+{"arm": "x0.9 mixers.2.out_proj output",  "RDI": "0x6e1f6958ffff8000", "bit32_logit": -0.8373}
+{"arm": "zero mlp_004 output",            "RDI": "0x6e1f6959ffffc800", "bit32_logit": 3.3167}
+{"arm": "x0.9 mlp_004 output",            "RDI": "0x6e1f6959ffff8000", "bit32_logit": 0.3961}
+```
+
+Zeroing a site mostly wrecks other bits (zeroing `mlp_003` leaves the word as it was but raises bit 32's logit to 1.70). Of the gentle 0.9 scalings, only the last mixer's write (`mixers.2.out_proj`) pushes bit 32 negative, and that arm yields exactly the table's answer `0x6e1f6958ffff8000`. Every other 0.9 arm makes bit 32 *more* positive.
+
+**Is that a repair or a coincidence? Same edit on every case** (*measured here*, `lab.py bit32_check`). Each case is recorded in memory, forked at `affine_028`'s exit, and compared with no edit and with 0.9:
+
+```text
+case                    symtab               baseline exact   x0.9 exact   other regs (x0.9)
+held-081                0x6e1f6958ffff8000   no               yes          exact
+held-085                0x6e1f695affff8000   no               yes          exact
+held-087                0x6e1f695bffff8000   no               no (still bit 34)  exact
+fib-O2@0x40121a         0x2                  yes              yes          exact
+checksum-O2@0x401183    0x403001             yes              yes          exact
+RDI=2^32-1, 2^47-1, 2^63-1                   yes ×3           yes ×3       exact
+```
+
+It fixes 2 of 3 known failures and breaks none of 5 correct cases. That is a lead, not a fix: 8 inputs, one factor, one checkpoint. It is consistent with what the computation-atlas census reports for this checkpoint, that mixer 2's write is where carries are committed and beyond depth 33 only layer 2 matters (`obsidian/blog/2026-10-30-000214-the-computation-atlas-prediction-programs-and-the-carry.md`). The next step is a factor × input sweep, which belongs on Beast through mrun.
+
+## 6. Use case: run the model as a program, instruction by instruction
+
+The discovery session can own an architectural driver (`mdb.discovery_isa.ISADriver`). It fetches 15 bytes at the model's own predicted offset, runs a forward, commits the predicted registers and flags, and advances by the predicted length. Breakpoints keep firing inside every forward. This is Python-only today (*measured here*, `lab.py driver`): it runs the first 24 bytes of `fib-O2`'s `_start` from the native initial state, with a breakpoint at `post.2`'s exit:
+
+```python
+s = DiscoverySession(budgets={"max_model_forwards": 8, "max_native_operations": 100_000})
+s.add_lane("fib", factory, driver=ISADriver(code.hex(), regs, flags, max_instructions=3),
+           reference_forwards=1, reference_operations=8192)
+s.call("break", {"selector": "module:post.2", "edge": "exit", "id": "post2"})
+s.call("motion", {"action": "step", "unit": "instruction"})   # repeated
+```
+
+```text
+{"program_hex": "4831ed4883e4f0e8a403000089c7b83c0000000f05f4662e", "rip": "0x401000", "RSP": "0x7fffffffe360"}
+{"call": 0, "stop": [["breakpoint", "post2"]], "clock": {"forward": 0, "aten_next": 500, "instruction": 0}}
+{"call": 1, "status": "completed", "clock": {"forward": 0, "aten_next": 571, "instruction": 1},
+ "commits": [{"offset": 0, "->": 3, "RSP": "00007fffffffe360", "flags": [0, 1, 0, 0]}]}
+{"call": 2, "stop": [["breakpoint", "post2"]], "clock": {"forward": 1, "aten_next": 500, "instruction": 1}}
+{"call": 3, "commits": [{"offset": 3, "->": 7, "RSP": "00007fffffffe350", "flags": [1, 0, 0, 0]}]}
+{"call": 4, "stop": [["breakpoint", "post2"]], "clock": {"forward": 2, "aten_next": 500, "instruction": 2}}
+{"call": 5, "stop": [["instruction_limit", null], ["motion_target", null]],
+ "commits": [{"offset": 7, "->": 9, "RSP": "00007fffffffe350", "flags": [0, 1, 0, 0]}]}
+native after step 0: rip 0x401003 RSP 0x7fffffffe360 flags [0,1,0,0]
+native after step 1: rip 0x401007 RSP 0x7fffffffe360 flags [0,0,0,0]
+native after step 2: rip 0x4013b0 RSP 0x7fffffffe358 flags [0,0,0,0]
+```
+
+Instruction 1 (`xor %rbp,%rbp`) matches native, including ZF. Instruction 2 is the `and` from §3. Instruction 3 is `call` (`e8`): the model predicts length 2 and commits without a store (the driver stops before a predicted store), while native jumps to `0x4013b0` and pushes. The driver has no branch-target output and no RAM, and it stops before committing predicted stores or syscalls by default (`DISCOVERY-DEBUGGER.md`). So `call`/`push` sequences can't be stepped faithfully here; that is what the harness's own run loop is for.
+
+## 7. Use case: compare checkpoints
+
+**Structure** (*measured here*). Same window, three recipes, from `catalog` (`debug/scratch/cat_de_nn`, `cat_de_hydra`, `tour`):
+
+| | ATen events | MLP sites | affine | normalize | residual updates |
+|---|---|---|---|---|---|
+| de_mamba | 571 | 5 (decoder, post.0–2, flags) | 42 | 3 | 3 |
+| de_nn | 286 | 11 (decoder, mixers.k.cross/token ×3, post.0–2, flags) | 42 | 9 | 3 |
+| de_hydra | 655 | 5 (decoder, post.0–2, flags) | 39 | 3 | 3 |
+
+All three share the decoder → three-block → heads layout, so `mlp_001` (the decoder), `module:post.N`, and the output heads mean the same thing in each. Scripts that address by module name port across checkpoints; scripts that use raw SSA ids or cursor numbers don't.
+
+**Behaviour.** Use the same decoded-heads view on each recipe (`step forward`, `inspect outputs`, decode):
+
+```text
+de_mamba  outputs: RSP 0x7fffffffe350 CF 1 len 4 dest RSP imm 0xfffffffffffffff0 width 64
+de_nn     outputs: RSP 0x7fffffffe370 CF 1 len 4 dest RSP imm 0xfffffffffffffff0 width 64
+de_hydra  outputs: RSP 0x7fffffffe370 CF 1 len 4 dest RSP imm 0xfffffffffffffff0 width 64
+```
+
+Identical decoding, opposite operation choice. Together with the `/r` sweep in §3, this is a compact fingerprint of how each checkpoint generalizes. It costs 24 forwards, which you can't get from aggregate eval coverage (all three are at 0.0% step coverage on `dev`).
+
+**Not covered by MDB.** For `m5d` and the selectors, `just debug` still gives you the stop and the native context, but no recipe (*measured here*):
+
+```text
+$ just debug m5d dev fib-O2
+{"debug_dir": "debug/m5d/dev/fib-O2", "status": "abstain", "exact_prefix_steps": 86, "mdb": null}
+## Stop  {"kind": "abstain", "reason": "no_record", "rip": "0x401143", "window": "48894c24204883fa010f84aa000000"}
+=>   401143:	mov    %rcx,0x20(%rsp)
+```
+
+M5d runs 86 steps exactly and then abstains on a store form its trie has no record for. By design it declines rather than guessing (reported: 0 wrong steps on fresh unseen gcc programs; `obsidian/blog/2026-10-30-170130-isa-survey-every-learned-x86-system-june-to-october.md`). The selector cells (for example `sel_mamba dev fib-O2`) stop at step 0 with `{"kind": "unsupported_instruction", "detail": "learned selector MOV_REG_RM; typed adapter XOR_RM_REG"}`. The selector's choice disagrees with the typed adapter on `xor %rbp,%rbp`. Recording a selector forward with MDB would work mechanically (it is a torch model), but `stage=debug` doesn't do it yet.
+
+## 8. Use case: save a frontier, resume later, audit the journal
+
+The `save-frontier` at the end of `and_tour.mdb` (§4) saved the edited `no_decoder` branch: 15,529,316 logical bytes, 33 MB on disk in `debug/scratch/frontier-store`. A fresh process resumes it at the saved cursor without replaying the prefix (*measured here*):
+
+```text
+$ mdb discovery resume debug/scratch/frontier-store edfbec91f251e57ad6f130bb2c0b7bf07fc6a68c11d0a40b7be183dafaeac9e8 \
+      --command status --command "inspect outputs" --output debug/scratch/resumed
+{"commands_executed": 2, "handler_hits": 0, "ok": true, "output": "debug/scratch/resumed"}
+status: clock {"aten_next": 571, "forward": 0, "instruction": null}, branch no_decoder,
+        work {"act_commits": 1, "branches": 2, "commands": 16, "native_operations": 1134, ...}
+outputs: length 1, RSP 0x7fffffffe360, CF 0, ... (identical to the no_decoder branch in §4)
+```
+
+The work counters carry the original session's history (1,134 replayed ops, 1 Act); resuming adds none. Both the journal and the frontier can be inspected offline. The journal check needs no torch:
+
+```text
+$ mdb discovery inspect debug/scratch/and_tour/journal --last 1
+mdb-discovery-offline-inspection-v1 16 metadata-only
+{"command": "save-frontier debug/scratch/frontier-store", "line": 16, "operation": "checkpoint", ...}
+$ mdb discovery inspect debug/scratch/frontier-store --cut edfbec91…
+{"cut_id": "edfbec91…", "native_frontier": {"manifest": {"boundary": "mdb-discovery-durable-frontier-v1",
+  "execution": {"backend": "cpu-fp32", "kind": "isa-bench-first-divergence", "program_step": 1},
+  "model_identity": "9399e921776d7a5437c5bbd51bfc1928f09d2ddea444fe2aa1c9cf282baf7f1e", ... "acts": [...] ...
+```
+
+Every recorded command is a content-addressed object chained to the previous one (`journal/objects/<sha256>.json`, `head.json`), so a session is an auditable artifact you can attach to a result. Resume requires the same CPU/Torch/platform contract and `safetensors`. A *new* forward after resume needs an explicitly supplied model factory; none is deserialized (`DISCOVERY-DEBUGGER.md`).
+
+## 9. Where MDB goes further (reported)
+
+None of this was run for this guide; each item says where it comes from. Everything except the NN edits is on the same `de_mamba` checkpoint.
+
+- **Sealed computation forecasts.** Independent NumPy FP64 equations for the model's suffix are hashed and sealed before the native run is released, then compared. Results:
+  - 32/32 fresh and 16/16 anchor decisions (`job-7a4c750a929f`, `saturn-pub/packages/mdb/docs/EXPLICIT-COMPUTATION-FORECASTS.md`);
+  - 18/18 raw-input steps over three instructions (`job-62804158d4e4`, `RAW-INPUT-SEQUENCE-FORECASTS.md`);
+  - across two later campaigns, 42/42 executed rows matched every head's frozen decision (`obsidian/blog/2026-10-30-200139-predicting-how-an-isa-model-computes.md`).
+
+  The forecasts also predict *wrong* answers. `add rax,rbx` encoded `4801d8` followed by XOR bytes gives RAX = 13,120,839 instead of 1030, and the forecast had sealed that number first (`obsidian/blog/2026-10-30-200139-predicting-how-an-isa-model-computes.md`, `INPUT-GENERALIZATION.md`). CLI: `mdb ports trace.json [--select …]`, `mdb forecast verify|show DIR`, `mdb equations compare|find` (`COMPUTATION-FORECAST-WORKFLOW.md`). This is the natural next step for §5: seal the table's prediction for a new input, then release the native run. Forecasts give no speed-up; they recompute the model in FP64.
+- **Value edits on the R3 NN.** A recipient-only edit installs a register value as an arithmetic operand. It produced the intended state in 24/24 new contexts, with 15/16 complete register states correct; one edit clears an unrelated bit (`obsidian/blog/2026-10-29-115335-what-our-neural-symbol-table-can-now-do.md`). ISA *weight* patches ("neural recompilation") live in `saturn/experiments/2026-10-29-neural-recompilation/`, not in MDB.
+- **Batched screening and remote control.** `mdb.discovery_batch.FrozenNativeBatch` screens up to four independent full forwards per native call, with per-row output Acts. `mdb discovery attach JOB_ID` drives a resident worker inside an mrun lease over the authenticated debugger transport (`DISCOVERY-DEBUGGER.md`). These are the routes for the sweeps this guide deferred: the `/r` × checkpoint × window grid, decoder-coordinate sweeps, and scale × input grids.
+
+## 10. Cheat sheet
+
+Setup and entry points:
+
+```sh
+mdb() { PYTHONPATH=../saturn-pub/packages/mdb/src ../common/bin/common exec python -m mdb "$@"; }
+just debug <model> <suite> [program]                # report.md + bundle.json (+ root-recipe/ for de_*)
+just mdb debug/<model>/<suite>/<prog>/root-recipe   # interactive; rm -rf …/console before a 2nd run
+mdb discovery replay <recipe> --interactive --output <new dir>
+mdb discovery replay <recipe> --command "<cmd>" [--command …] --output <new dir>
+mdb discovery replay <recipe> --script file.mdb --output <new dir>     # file starts: interface mdb-discovery-v1
+mdb discovery resume <store> <cut_id> --command … --output <new dir>
+mdb discovery inspect <out>/journal --last N        # offline, verifies the hash chain
+mdb discovery inspect <store> --cut <cut_id>        # offline frontier manifest
+mdb forward-symbols <recipe>/trace.json --readable | --value vNNNNNN | --step N | --list
+```
+
+Console commands (`src/mdb/discovery_script.py`). Entries marked † come from the parser and were not exercised in this guide:
+
+| command | does |
+|---|---|
+| `status`, `capabilities`, `catalog`, `events`† | lanes/clocks/work; feature list; structural sites; event log |
+| `alias NAME = SELECTOR` | session alias (`module:post.1`, `mlp_003`, `affine_028`, `vNNNNNN`) |
+| `break SELECTOR enter\|exit [--id ID]` | breakpoint at a site boundary |
+| `step\|next\|into\|finish [UNIT]` | UNIT ∈ `op math law update forward instruction`; default `law` |
+| `until SELECTOR`, `continue` / `run`† | run to a site / to the next stop; `--all --stop-policy lane`† for many lanes |
+| `capture NAME`, `restore NAME` | make / return to a cut |
+| `fork NAME`, `select NAME` | branch from the current head / focus a branch |
+| `inspect state\|outputs\|live\|SELECTOR[:input\|:output]` | read lane frame, heads, live frontier, or a value |
+| `save-frontier STORE` | durable snapshot of the selected branch |
+| `lane focus ID`† | switch lanes |
+| `on-hit ID … end`, `repeat N … end`† | handler block (motion only as `continue --defer`); finite loop |
+| `call {"operation": …, "payload": {…}}` | any typed operation, e.g. below |
+
+Typed operations you will want via `call`:
+
+```text
+call {"operation":"act","payload":{"selector":"mlp_003:output","value_spec":{"kind":"zeros_like"}}}
+call {"operation":"act","payload":{"selector":"affine_028:output","value_spec":{"kind":"scale","factor":0.9}}}
+call {"operation":"act","payload":{"selector":"v000430","value":[[...]],"sign":"add"}}     # literal; replace|add († "add" not run here)
+call {"operation":"break","payload":{"action":"disable","id":"p1"}}                      # enable|remove|list
+call {"operation":"watch","payload":{"selector":"mlp_004:output","predicate":"change"}}  # change watches only († not run here)
+call {"operation":"fork","payload":{"name":"arm2","cut":"at_decoder"}}                  # fork from a named cut
+call {"operation":"capabilities"}
+```
+
+Python (same semantics, `src/mdb/discovery.py`):
+
+```python
+from mdb.discovery import DiscoverySession
+from mdb.discovery_cli import load_capture, save_capture
+from mdb.forward_recording import record_forward      # record any frozen eval-mode torch model
+from mdb.discovery_runtime import ReplayForward
+from mdb.discovery_isa import ISADriver                # instruction stepping (R3 ABI)
+s = DiscoverySession(budgets={"max_native_operations": 4_000_000})
+s.add_lane("lane_00", lambda: load_capture("debug/de_mamba/dev/fib-O2/root-recipe"))
+s.call("break", {"selector": "mlp_001", "edge": "exit", "id": "dec"}); s.call("motion", {"action": "continue"})
+```
+
+## 11. Limits, gotchas, next steps
+
+Gotchas (all *measured here* unless marked):
+
+- **`--output` must be a new directory.** Every `replay`/`resume` refuses an existing one, including `just mdb`'s fixed `<recipe>/../console`.
+- **`inspect outputs` returns raw logits.** Decode them yourself (appendix `decode.py`). Saturn request `mdb-discovery-isa-output-decode-profile` asks for this in the console.
+- **Ids are per recording.** Program ids differ per input (`program:8303…` for the push recipe, `program:4012…` for the `and` recipe). Use site names (`mlp_001`, `module:post.2`); `vNNNNNN` and cursor numbers only hold within one recording, or the same model and recording mode (reported: freezing parameters with `requires_grad_(False)` shifts the post.1 MLP from 359/369 to 365/375).
+- **No weight edits in the discovery console.** Roots are read-only (`edits require a produced, live, unconsumed tensor; roots are read-only`). Edit a produced value instead: a module output, or the transposed weight view an `affine` produces just before its `addmm`, for a one-forward weight experiment. That last idea is *not run here*.
+- **A recipe replays from its roots.** It does not resume the original eager run (`direct_eager_pause: false`); use `save-frontier` for real pause/resume.
+- **The driver has no RAM, no branch targets, and stops before stores/syscalls** (§6). It is for stepping straight-line ALU code, not whole programs.
+- **`mdb forward-symbols --readable --scope decoder` printed "no operations in this scope"** on these recipes; use `--value` / `--step` or the unscoped listing.
+- **Cost.** Each CLI call took about 20–60 s wall, almost all of it environment start-up. Inside one Python process, 8 recordings plus 16 replayed suffixes took 12.2 s. Keep loops in one process, and send anything wider than a handful of inputs to Beast.
+
+Scope of the claims:
+
+- Symbol-table statements are about checkpoint `9399e921…` and the inputs listed. "Predicts compiled C" means 5/5 `add $1` instructions, not general decoding.
+- The decoder 2-coordinate flip and the `mixers.2` 0.9 repair are single-checkpoint observations on 1 and 8 inputs respectively. Both came with a measured counter-test (the `sub` transfer failed; held-087 not fixed). Treat them as leads.
+
+Next steps that would make this better:
+
+1. Wire selector models into `stage=debug` so their forwards get recipes too (MDB already records any frozen torch model).
+2. Saturn requests filed today: `mdb-discovery-donor-lane-acts` (console transplants with donor custody) and `mdb-discovery-isa-output-decode-profile` (decoded heads in the console). Upvoted: `mdb-computation-hypotheses-and-causal-naming` (attach the OF counterexample to the table's flag rule).
+3. Move the `/r` sweep, decoder-coordinate sweep and `mixers.2` scale × input grid onto Beast as one mrun lease using `FrozenNativeBatch`, then seal the table's predictions as forecasts before release (§9).
+4. Give `just mdb` a fresh output directory per session.
+
+---
+
+## Appendix: the scripts behind the measured examples
+
+The measured Python examples were run as:
+
+```sh
+PYTHONPATH=src:../saturn-pub/packages/mdb/src ../common/bin/common exec python debug/scratch/lab.py <section>
+```
+
+The sections are `sweep_ext`, `symtab`, `edit_and`, `selector_check`, `bit32`, `bit32_check` and `driver`, run one process at a time. `debug/` is gitignored, so both files are reproduced verbatim below. `lab.py` imports harness code (`load_adapter`) the same way `src/isa_bench/debug.py` does.
+
+### `debug/scratch/decode.py`
+
+```python
+"""Decode `inspect outputs` records of an MDB discovery result.json into x86 state (no torch)."""
+import json
+import sys
+
+REGS = ("RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI")
+FLAGS = ("CF", "ZF", "SF", "OF")
+
+
+def word(bits):
+    return sum(1 << i for i, b in enumerate(bits) if b > 0)
+
+
+def decode(heads):
+    v = {k: h["value"] for k, h in heads.items()}
+    argmax = lambda xs: max(range(len(xs)), key=xs.__getitem__)
+    out = {"length": argmax(v["length"][0]) + 1,
+           "length_logits_top3": sorted(((round(x, 2), i + 1) for i, x in enumerate(v["length"][0])), reverse=True)[:3],
+           "regs": {n: hex(word(v["regs"][0][i])) for i, n in enumerate(REGS)},
+           "flags": {n: int(v["flags"][0][i] > 0) for i, n in enumerate(FLAGS)},
+           "flag_logits": [round(x, 2) for x in v["flags"][0]],
+           "store": v["store"][0] > 0, "store_logit": round(v["store"][0], 2), "syscall": v["syscall"][0] > 0}
+    if "dest" in v:
+        out.update({"dest": REGS[argmax(v["dest"][0])], "src": REGS[argmax(v["src"][0])],
+                    "width": (8, 32, 64)[argmax(v["width"][0])], "imm": hex(word(v["imm"][0]))})
+    return out
+
+
+if __name__ == "__main__":
+    result = json.load(open(sys.argv[1]))
+    for rec in result["records"]:
+        if rec.get("command") == "inspect outputs":
+            branch = rec["response"]["lane"]["branch_id"]
+            print(json.dumps({"line": rec["line"], "branch": branch, **decode(rec["response"]["value"])}))
+```
+
+### `debug/scratch/lab.py`
+
+```python
+"""Scratch lab for docs/debugging-with-mdb.md. One section per invocation, one process at a time.
+
+    PYTHONPATH=src:../saturn-pub/packages/mdb/src ../common/bin/common exec python debug/scratch/lab.py <section>
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+REGS = ("RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI")
+FLAGS = ("CF", "ZF", "SF", "OF")
+M64 = (1 << 64) - 1
+
+
+def adapter(name):
+    from isa_bench.adapters import load_adapter
+    from isa_bench.cli import compose
+
+    a = load_adapter(compose("model", name), REPO)
+    a.load()
+    return a
+
+
+def native_before(suite, program, rip):
+    """Native state before the first execution of `rip`, plus the 15-byte fetch window and the native after-state."""
+    from isa_bench.state import PageMemory, Trace
+
+    pdir = REPO / "outputs/reference" / suite / "programs" / program
+    tr = Trace(pdir)
+    for i in range(len(tr)):
+        if int(tr.steps[i][0]) == rip:
+            before, after = tr.state(i), tr.state(i + 1)
+            return i, PageMemory(pdir / "mem.bin").fetch(rip), before, after
+    raise KeyError(hex(rip))
+
+
+def roots(window, regs, flags):
+    import torch
+
+    window = bytes(window).ljust(15, b"\0")[:15]
+    win = torch.tensor([[(v >> i) & 1 for v in window for i in range(8)]], dtype=torch.float32)
+    reg = torch.tensor([[[(v >> i) & 1 for i in range(64)] for v in regs]], dtype=torch.float32)
+    flg = torch.tensor([[flags[n] for n in FLAGS]], dtype=torch.float32)
+    return win, reg, flg
+
+
+def symtab_program(window, regs):
+    """The R3 Mamba symbol table as a program: route(raw bits 16-18) -> q-law y=q^x, q'=q&x (q0=1); flags rule; length 4.
+
+    Sources: isa/outputs/response-route-r3-mamba (route), response-quotient-r3-mamba (q-law, q0=1),
+    symbolic-loop-r3-mamba (flags CF=0, ZF=0, SF=output bit 63, OF=0; length 4)."""
+    slot = window[2] & 7
+    x, q, y = regs[slot], 1, 0
+    for i in range(64):
+        xi = (x >> i) & 1
+        y |= (q ^ xi) << i
+        q = q & xi
+    out = list(regs)
+    out[slot] = y
+    return {"slot": REGS[slot], "regs": out, "flags": {"CF": 0, "ZF": 0, "SF": (y >> 63) & 1, "OF": 0}, "length": 4}
+
+
+def sweep_ext():
+    """`48 83 /r f0` on RSP for every ModRM reg field, across the three direct-effect checkpoints."""
+    _, window, before, after = native_before("dev", "fib-O2", 0x401003)
+    regs, flags = list(before.regs[:8]), {n: before.flags[n] for n in FLAGS}
+    print(json.dumps({"window": window.hex(), "RSP_before": hex(regs[4]), "flags_before": flags,
+                      "native_after": {"RSP": hex(after.regs[4]), "CF": after.flags["CF"]}}))
+    names = ("add", "or", "adc", "sbb", "and", "sub", "xor", "cmp")
+    for model in ("de_mamba", "de_nn", "de_hydra"):
+        a = adapter(model)
+        row = {}
+        for r in range(8):
+            w = bytearray(window)
+            w[2] = 0xC4 | (r << 3)
+            out = a.step(bytes(w), regs, flags, 0x401003)
+            d = (out["regs"][4] - regs[4]) & M64
+            delta = d - (1 << 64) if d >> 63 else d
+            row[f"/{r} {names[r]}"] = f"RSP{delta:+d} CF={out['flags']['CF']} len={out['length']}"
+        print(json.dumps({"model": model, **row}))
+
+
+def symtab():
+    """Ask the symbol table first, then run de_mamba, on real program instructions and on the sealed panel's inputs."""
+    a = adapter("de_mamba")
+    cases = []
+    for suite, prog, rip in (("dev", "fib-O2", 0x40121A), ("heldout_m4", "checksum-O2", 0x401183),
+                             ("dev", "fib-O2", 0x401236), ("heldout_m4", "checksum-O2", 0x4010f3),
+                             ("heldout_m4", "checksum-O2", 0x4010ba)):
+        try:
+            step, window, before, after = native_before(suite, prog, rip)
+        except KeyError:
+            print(json.dumps({"case": f"{prog}@{rip:#x}", "skipped": "not executed natively"}))
+            continue
+        cases.append((f"{prog}@{rip:#x} step {step}", window, list(before.regs[:8]),
+                      {n: before.flags[n] for n in FLAGS}, after))
+    f = json.loads((REPO.parent / "isa/outputs/response-quotient-r3-mamba/findings.json").read_text())
+    for ex in f["heldout_metrics"]["target_bit_exceptions"]:
+        cases.append((f"sealed panel {ex['query_id']}", bytes.fromhex(ex["raw_window_hex"]),
+                      ex["input_register_words_before"], dict.fromkeys(FLAGS, 0), None))
+    base = f["heldout_metrics"]["target_bit_exceptions"][0]["input_register_words_before"]
+    for k in (31, 32, 33, 47, 63):
+        regs = list(base)
+        regs[7] = (1 << k) - 1
+        cases.append((f"fresh RDI=2^{k}-1", bytes.fromhex("4883c7014883c7014883c7014883c7"), regs,
+                      dict.fromkeys(FLAGS, 0), None))
+    for label, window, regs, flags, native in cases:
+        pred = symtab_program(window, regs)
+        out = a.step(window, regs, flags, 0)
+        slot = REGS.index(pred["slot"])
+        wrong_bits = [i for i in range(64) if ((out["regs"][slot] ^ pred["regs"][slot]) >> i) & 1]
+        other_regs_equal = all(out["regs"][i] == pred["regs"][i] for i in range(8) if i != slot)
+        row = {"case": label, "window": window[:4].hex(), "slot": pred["slot"], "in": hex(regs[slot]),
+               "symtab": hex(pred["regs"][slot]), "model": hex(out["regs"][slot]),
+               "target_word_exact": not wrong_bits, "wrong_bits": wrong_bits, "other_regs_equal": other_regs_equal,
+               "flags_symtab": pred["flags"], "flags_model": out["flags"], "len_model": out["length"]}
+        if native is not None:
+            row["native"] = hex(native.regs[slot])
+            row["flags_native"] = {n: native.flags[n] for n in FLAGS}
+        print(json.dumps(row))
+
+
+# ---------------------------------------------------------------- MDB discovery sessions (Python API)
+
+def ok(r):
+    if not r.get("ok"):
+        raise SystemExit(json.dumps(r, default=str)[:3000])
+    return r
+
+
+def session_for(recipe):
+    from mdb.discovery import DiscoverySession
+    from mdb.discovery_cli import load_capture
+
+    s = DiscoverySession(budgets={"max_native_operations": 4_000_000})
+    s.add_lane("lane_00", lambda: load_capture(recipe))
+    return s
+
+
+def outputs(s):
+    sys.path.insert(0, str(Path(__file__).parent))
+    from decode import decode
+
+    raw = ok(s.call("inspect", {"selector": "outputs"}))["value"]
+    return decode(raw), raw
+
+
+def prepare_cuts(s, sites):
+    """Break at every site's exit, capture a named cut at each stop, then disarm."""
+    for site in sites:
+        ok(s.call("break", {"selector": site, "edge": "exit", "id": "b_" + site}))
+    seen = []
+    while len(seen) < len(sites):
+        r = ok(s.call("motion", {"action": "continue"}))
+        hits = [c["id"] for c in r["stop_causes"] if c.get("kind") == "breakpoint"]
+        if not hits:
+            break
+        for h in hits:
+            ok(s.call("capture", {"name": h[2:]}))
+            seen.append((h[2:], r["lane"]["clock"]["aten_next"]))
+    for site in sites:
+        ok(s.call("break", {"action": "disable", "id": "b_" + site}))
+    return seen
+
+
+def arm(s, name, cut, act=None):
+    ok(s.call("fork", {"name": name, "cut": cut}))
+    ok(s.call("select", {"name": name}))
+    receipt = ok(s.call("act", act))["receipt"] if act else None
+    ok(s.call("motion", {"action": "step", "unit": "forward"}))
+    dec, raw = outputs(s)
+    return dec, raw, receipt
+
+
+def donor_vector(a, window, regs, flags, site="mlp_001"):
+    """Record a donor forward with MDB and read one site's output at its exit."""
+    from mdb.discovery_runtime import ReplayForward
+    from mdb.forward_recording import record_forward
+
+    cap = record_forward(a.model, roots(window, regs, flags), model_identity="de_mamba-donor",
+                         execution={"backend": "cpu-fp32"}, input_identity={"window_hex": bytes(window).hex()})
+    rf = ReplayForward(cap)
+    exit_pc = rf.catalog.resolve(site)["exit"]
+    while rf.pc < exit_pc:
+        rf.advance_one()
+    return rf.read(rf.catalog.resolve(site + ":output")["value_id"])
+
+
+def edit_and():
+    """Why does de_mamba run `and $-16,%rsp` as add? Transplant the decoder vector from other /r encodings."""
+    recipe = REPO / "debug/de_mamba/dev/fib-O2/root-recipe"
+    a = adapter("de_mamba")
+    _, window, before, _ = native_before("dev", "fib-O2", 0x401003)
+    regs, flags = list(before.regs[:8]), {n: before.flags[n] for n in FLAGS}
+    donors = {}
+    for r in (0, 4, 5):
+        w = bytearray(window)
+        w[2] = 0xC4 | (r << 3)
+        donors[r] = donor_vector(a, bytes(w), regs, flags)
+    s = session_for(recipe)
+    print(json.dumps({"cuts": prepare_cuts(s, ["mlp_001"])}))
+    own = ok(s.call("inspect", {"selector": "mlp_001:output"}))["value"]["value"]
+    import torch
+
+    print(json.dumps({"recipe_decoder_equals_/4_donor": bool(torch.equal(torch.tensor(own), donors[4]))}))
+    d = (donors[5] - donors[4])[0]
+    order = d.abs().argsort(descending=True).tolist()
+    print(json.dumps({"decoder_dim": d.numel(), "l2(/5-/4)": round(float(d.norm()), 3),
+                      "l2(/0-/4)": round(float((donors[0] - donors[4]).norm()), 3),
+                      "top8_coords_/5-/4": [(i, round(float(d[i]), 2)) for i in order[:8]]}))
+
+    def show(name, dec, receipt=None):
+        delta = ((int(dec["regs"]["RSP"], 16) - regs[4] + (1 << 63)) & M64) - (1 << 63)
+        print(json.dumps({"arm": name, "RSP": dec["regs"]["RSP"], "RSP_delta": delta, "CF": dec["flags"]["CF"],
+                          "len": dec["length"], "dest": dec["dest"], "imm": dec["imm"], "store": dec["store"],
+                          **({"act": receipt["value_id"]} if receipt else {})}))
+
+    show("baseline (no edit)", *arm(s, "baseline", "mlp_001")[::2])
+    for name, vec in (("decoder := /5 (sub) vector", donors[5]), ("decoder := /0 (add) vector", donors[0])):
+        dec, _, rc = arm(s, name.split()[2].strip("()") + "_transplant", "mlp_001",
+                         {"selector": "mlp_001:output", "value": vec.tolist()})
+        show(name, dec, rc)
+    for k in (1, 2, 4, 8, 16, 32, 64, 128):
+        v = donors[4].clone()
+        v[0, order[:k]] = donors[5][0, order[:k]]
+        dec, _, rc = arm(s, f"top{k}", "mlp_001", {"selector": "mlp_001:output", "value": v.tolist()})
+        show(f"top-{k} coords of /5 pasted", dec)
+    dec, _, _ = arm(s, "zero_decoder", "mlp_001", {"selector": "mlp_001:output", "value_spec": {"kind": "zeros_like"}})
+    show("decoder zeroed", dec)
+
+
+def bit32():
+    """Sealed-panel exception held-081: where does the wrong RDI bit 32 come from?"""
+    from mdb.discovery_cli import save_capture
+    from mdb.forward_recording import record_forward
+
+    f = json.loads((REPO.parent / "isa/outputs/response-quotient-r3-mamba/findings.json").read_text())
+    ex = f["heldout_metrics"]["target_bit_exceptions"][0]
+    window, regs = bytes.fromhex(ex["raw_window_hex"]), ex["input_register_words_before"]
+    a = adapter("de_mamba")
+    from isa_bench.adapters import sha256_file
+
+    ck = sha256_file(a.artifact / "model.pt")
+    cap = record_forward(a.model, roots(window, regs, dict.fromkeys(FLAGS, 0)), model_identity=ck,
+                         execution={"backend": "cpu-fp32", "kind": "symbol-table-exception"},
+                         input_identity={"window_hex": window.hex(), "register_words": regs, "flags_CF_ZF_SF_OF": [0] * 4},
+                         metadata={"case_id": ex["query_id"], "checkpoint_sha256": ck})
+    root = REPO / "debug/scratch/held-081/root-recipe"
+    if root.exists():
+        import shutil
+
+        shutil.rmtree(root)
+    save_capture(cap, root)
+    s = session_for(root)
+    sites = ["mixers.0.out_proj", "mlp_002", "mixers.1.out_proj", "mlp_003", "mixers.2.out_proj", "mlp_004"]
+    sel = {"mixers.0.out_proj": "affine_016", "mixers.1.out_proj": "affine_022", "mixers.2.out_proj": "affine_028"}
+    print(json.dumps({"recipe": str(root.relative_to(REPO)), "cuts": prepare_cuts(s, [sel.get(x, x) for x in sites])}))
+
+    def show(name, dec, raw):
+        logit = raw["regs"]["value"][0][7]
+        print(json.dumps({"arm": name, "RDI": dec["regs"]["RDI"], "bit32_logit": round(logit[32], 4),
+                          "bit34_logit": round(logit[34], 4), "bit15_logit": round(logit[15], 3),
+                          "len": dec["length"]}))
+
+    dec, raw, _ = arm(s, "baseline", sel.get("mlp_004", "mlp_004"))
+    show("baseline", dec, raw)
+    for site in sites:
+        cut = sel.get(site, site)
+        for kind, spec in (("zero", {"kind": "zeros_like"}), ("x0.9", {"kind": "scale", "factor": 0.9})):
+            dec, raw, _ = arm(s, f"{kind}_{site}", cut, {"selector": cut + ":output", "value_spec": spec})
+            show(f"{kind} {site} output", dec, raw)
+
+
+def live_session(a, window, regs, flags):
+    """Record one forward in memory and open it as a discovery lane (no recipe on disk)."""
+    from mdb.discovery import DiscoverySession
+    from mdb.discovery_runtime import ReplayForward
+    from mdb.forward_recording import record_forward
+
+    cap = record_forward(a.model, roots(window, regs, flags), model_identity="de_mamba",
+                         execution={"backend": "cpu-fp32"}, input_identity={"window_hex": bytes(window).hex(),
+                                                                            "register_words": list(regs)})
+    s = DiscoverySession(budgets={"max_native_operations": 4_000_000})
+    s.add_lane("lane_00", lambda: ReplayForward(cap))
+    return s
+
+
+def bit32_check():
+    """Does `scale mixers.2.out_proj x0.9` generalize, or did it only fix held-081? Same edit on every symtab case."""
+    a = adapter("de_mamba")
+    f = json.loads((REPO.parent / "isa/outputs/response-quotient-r3-mamba/findings.json").read_text())
+    cases = [(e["query_id"], bytes.fromhex(e["raw_window_hex"]), e["input_register_words_before"])
+             for e in f["heldout_metrics"]["target_bit_exceptions"]]
+    for suite, prog, rip in (("dev", "fib-O2", 0x40121A), ("heldout_m4", "checksum-O2", 0x401183)):
+        _, window, before, _ = native_before(suite, prog, rip)
+        cases.append((f"{prog}@{rip:#x}", window, list(before.regs[:8])))
+    base = cases[0][2]
+    for k in (32, 47, 63):
+        regs = list(base)
+        regs[7] = (1 << k) - 1
+        cases.append((f"RDI=2^{k}-1", bytes.fromhex("4883c7014883c7014883c7014883c7"), regs))
+    for label, window, regs in cases:
+        flags = dict.fromkeys(FLAGS, 0)
+        want = symtab_program(window, regs)
+        slot = REGS.index(want["slot"])
+        s = live_session(a, window, regs, flags)
+        prepare_cuts(s, ["affine_028"])
+        res = {"case": label, "symtab": hex(want["regs"][slot])}
+        for name, act in (("baseline", None),
+                          ("x0.9", {"selector": "affine_028:output", "value_spec": {"kind": "scale", "factor": 0.9}})):
+            dec, _, _ = arm(s, name, "affine_028", act)
+            got = [int(dec["regs"][n], 16) for n in REGS]
+            res[name] = {"target": dec["regs"][want["slot"]],
+                         "target_exact": got[slot] == want["regs"][slot],
+                         "other_regs_exact": all(got[i] == want["regs"][i] for i in range(8) if i != slot)}
+        print(json.dumps(res))
+
+
+def selector_check():
+    """Do decoder coords 220/152 act as an add/sub selector on a real `sub $0x18,%rsp`?"""
+    a = adapter("de_mamba")
+    step, window, before, after = native_before("c_apps", "medium_sort-Os", 0x401004)
+    regs, flags = list(before.regs[:8]), {n: before.flags[n] for n in FLAGS}
+    print(json.dumps({"instr": "sub $0x18,%rsp @0x401004", "step": step, "window": window.hex(),
+                      "RSP_before": hex(regs[4]), "native_RSP_after": hex(after.regs[4])}))
+    add_w = bytearray(window)
+    add_w[2] = 0xC4  # 48 83 c4 18 = add $0x18,%rsp
+    add_vec = donor_vector(a, bytes(add_w), regs, flags)
+    s = live_session(a, window, regs, flags)
+    prepare_cuts(s, ["mlp_001"])
+    own = __import__("torch").tensor(ok(s.call("inspect", {"selector": "mlp_001:output"}))["value"]["value"])
+    for name, coords in (("baseline", []), ("paste add coord 220", [220]), ("paste add coord 152", [152]),
+                         ("paste add coords 220+152", [220, 152]), ("paste whole add vector", list(range(256)))):
+        v = own.clone()
+        v[0, coords] = add_vec[0, coords]
+        act = {"selector": "mlp_001:output", "value": v.tolist()} if coords else None
+        dec, _, _ = arm(s, name.replace(" ", "_"), "mlp_001", act)
+        delta = ((int(dec["regs"]["RSP"], 16) - regs[4] + (1 << 63)) & M64) - (1 << 63)
+        print(json.dumps({"arm": name, "RSP": dec["regs"]["RSP"], "RSP_delta": delta, "len": dec["length"],
+                          "dest": dec["dest"], "imm": dec["imm"]}))
+
+
+def driver():
+    """Run de_mamba as a program under the debugger: fib-O2 `_start` bytes, native initial state, ISADriver."""
+    from mdb.discovery import DiscoverySession
+    from mdb.discovery_isa import ISADriver
+    from mdb.discovery_runtime import ReplayForward
+    from mdb.forward_recording import record_forward
+    from isa_bench.state import PageMemory, Trace
+
+    a = adapter("de_mamba")
+    pdir = REPO / "outputs/reference/dev/programs/fib-O2"
+    tr = Trace(pdir)
+    s0 = tr.state(0)
+    code = PageMemory(pdir / "mem.bin").read(s0.rip, 24)
+    regs = list(s0.regs[:8])
+    flags = [s0.flags[n] for n in FLAGS]
+    print(json.dumps({"program_hex": code.hex(), "rip": hex(s0.rip), "RSP": hex(regs[4]), "flags": flags}))
+
+    def factory(*r):
+        cap = record_forward(a.model, r, model_identity="de_mamba", execution={"backend": "cpu-fp32"},
+                             input_identity={"window_bits": [int(v) for v in r[0][0].tolist()]}, max_operations=8192)
+        return ReplayForward(cap)
+
+    s = DiscoverySession(budgets={"max_model_forwards": 8, "max_native_operations": 100_000})
+    s.add_lane("fib", factory, driver=ISADriver(code.hex(), regs, flags, max_instructions=3),
+               reference_forwards=1, reference_operations=8192)
+    ok(s.call("break", {"selector": "module:post.2", "edge": "exit", "id": "post2"}))
+    for i in range(8):
+        r = s.call("motion", {"action": "step", "unit": "instruction"})
+        lane = r.get("lane", {})
+        commits = [{"offset": c["before"]["byte_offset"], "->": c["after"]["byte_offset"],
+                    "RBP": c["after"]["register_words"][5], "RSP": c["after"]["register_words"][4],
+                    "flags": c["after"]["flags_CF_ZF_SF_OF"]} for c in r.get("commits") or []]
+        print(json.dumps({"call": i, "ok": r.get("ok"), "status": r.get("status"),
+                          "stop": [(c.get("kind"), c.get("id")) for c in r.get("stop_causes", [])],
+                          "clock": lane.get("clock"), "commits": commits}, default=str)[:900])
+        kinds = {c.get("kind") for c in r.get("stop_causes", [])}
+        if not r.get("ok") or kinds & {"program_end", "instruction_limit", "effect_blocked", "unhandled_effect"}:
+            print(json.dumps({"final_stop": r.get("stop_causes"), "error": r.get("error")}, default=str)[:900])
+            break
+    for i in range(3):
+        rip = int(tr.steps[i + 1][0])
+        st = tr.state(i + 1)
+        print(json.dumps({"native_after_step": i, "rip": hex(rip), "RBP": hex(st.regs[5]), "RSP": hex(st.regs[4]),
+                          "flags": [st.flags[n] for n in FLAGS]}))
+
+
+if __name__ == "__main__":
+    globals()[sys.argv[1]]()
+    raise SystemExit(0)
+    {"sweep_ext": sweep_ext, "symtab": symtab, "edit_and": edit_and, "bit32": bit32,
+     "bit32_check": bit32_check, "selector_check": selector_check}[sys.argv[1]]()
+```
+
+`debug/scratch/scripts/and_tour.mdb` is printed in full in §4. `debug/scratch/scripts/clocks.mdb` (§2):
+
+```text
+interface mdb-discovery-v1
+step op
+step math
+step math
+step law
+into law
+step math
+finish law
+step update
+until mlp_004
+step forward
+```

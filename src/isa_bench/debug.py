@@ -6,7 +6,7 @@ Writes ``debug/<model>/<suite>/<program>/``:
   report.md       stop/divergence, expected vs predicted state, disassembly around RIP
   bundle.json     the exact inputs of the divergent step (window, registers, flags)
   root-recipe/    (direct-effect models) MDB discovery replay recipe of that forward
-Then:  python -m mdb discovery replay debug/.../root-recipe --interactive --output debug/.../console
+Then:  just mdb debug/.../root-recipe
 """
 from __future__ import annotations
 
@@ -36,9 +36,12 @@ def pick_cell(eval_dir: Path, program: str | None) -> tuple[str, dict]:
 
 def disasm_context(ref_prog: Path, rip: str | None, radius: int = 6) -> str:
     path = ref_prog / "disasm.txt"
-    if not rip or not path.exists():
+    if not path.exists():
         return "(disassembly unavailable locally)"
-    lines = path.read_text().splitlines()
+    if not rip:
+        return "(no divergence or stop address: the run ended normally)"
+    # objdump's header names the Beast job path of the ELF; keep only code lines
+    lines = [ln for ln in path.read_text().splitlines() if ln.strip() and "file format" not in ln]
     want = rip.lower().removeprefix("0x")
     for i, line in enumerate(lines):
         m = re.match(r"\s*([0-9a-f]+):", line)
@@ -114,7 +117,7 @@ def run_debug(cfg: dict) -> dict:
     if info.get("mdb"):
         m = info["mdb"]
         lines += ["", "## MDB", f"Replay recipe: `{m['root_recipe']}` ({m['operations']} recorded operations).", "",
-                  "```sh", f"python -m mdb discovery replay {m['root_recipe']} --interactive --output {out.relative_to(REPO)}/console",
+                  "```sh", f"just mdb {m['root_recipe']}",
                   "```", "Console commands: see saturn-pub/packages/mdb/docs/DISCOVERY-DEBUGGER.md "
                   "(breakpoints on module:post.N, capture/inspect, fork, restore)."]
         if m.get("symbol_table"):
