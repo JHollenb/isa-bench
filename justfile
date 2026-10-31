@@ -34,6 +34,14 @@ smoke model suite="c_apps":
 report:
     {{py}} stage=report
 
+# correctness + compute table for every registered model (or `just board local`): outputs/report/board.{md,html}
+board source="mlflow":
+    {{py}} stage=board board.source={{source}}
+
+# proof-gated M5d over a suite: prove (Z3 vs SLEIGH) -> freeze certificate -> gated runs; outputs/gate/<label>/<suite>
+gate suite="c_apps" *overrides:
+    {{py}} stage=gate suite={{suite}} {{overrides}}
+
 # MLflow run + registry version carrying the model's artifact and every suite's results
 register model:
     {{py}} stage=register model={{model}}

@@ -24,8 +24,12 @@ just matrix "[unicorn,m5d]" "[c_apps,dev]"   # many models x suites in one lease
 just report                    # outputs/report/matrix.md
 just register m5d              # MLflow run + new registry version carrying the results
 just debug de_mamba c_apps     # first divergence + MDB replay recipe
+just board                     # correctness + compute table from the MLflow registry (outputs/report/board.html)
+just gate c_apps               # proof-gated M5d over a suite (Z3 vs SLEIGH certificate, then gated runs)
 dvc repro                      # the whole pipeline; reruns only what changed
 ```
+
+Step-by-step workflows (update, train, gate, custom C program, full matrix, publish): [docs/workflow.md](docs/workflow.md). MDB tour: [docs/debugging-with-mdb.md](docs/debugging-with-mdb.md).
 
 All recipes are thin wrappers over `python -m isa_bench stage=<stage> ...` (Hydra), so any config value can be overridden on the command line.
 
@@ -38,7 +42,7 @@ All recipes are thin wrappers over `python -m isa_bench stage=<stage> ...` (Hydr
 | `models/_vendor/isa_r3/` | Frozen shared sources from the compiled-C PoC lease job-007fe5d65603 (`PROVENANCE.json` has every file's sha256). |
 | `artifacts/frozen/<model>/` | Model artifacts, DVC-tracked (remote `beast-cold` = `s3://experiments/dvc/isa-bench` on Beast MinIO :9010). |
 | `programs/` | C sources: `c_apps` (PoC apps), `dev` and `heldout_m4` (M4/M5 sets), `fresh1`/`fresh2` (proof-gate held-out sets, run deliberately), `tools/` (tracer + native timer). |
-| `src/isa_bench/` | Harness: `worker.py` (in-lease entry), `cell.py` (one model x program in a fresh process), `state.py` (traces, memory, comparator), `adapters.py` (contract), `metrics.py`, `launch.py` (mrun), `tracking.py` (MLflow), `debug.py` (MDB), `cli.py`. |
+| `src/isa_bench/` | Harness: `worker.py` (in-lease entry), `cell.py` (one model x program in a fresh process), `state.py` (traces, memory, comparator), `adapters.py` (contract), `metrics.py`, `launch.py` (mrun), `tracking.py` (MLflow), `board.py` (compute board), `gate.py` (proof gate driver), `debug.py` (MDB), `cli.py`. |
 | `outputs/` | `reference/<suite>/` (traces; `store.json` points at the Beast copy eval jobs read), `eval/<model>/<suite>/` (cells + `summary.{json,md}`), `metrics/<model>.json` (DVC metrics), `report/`. |
 | `runs/` | Local receipts per submission (request, mrun job id, log, source manifest). |
 | `legacy/c-app-matrix-poc/` | The throwaway PoC this repo replaces, kept for provenance. |

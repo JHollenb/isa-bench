@@ -1,0 +1,329 @@
+{
+ "arms": {
+  "G0-m4+program": {
+   "complete": 3,
+   "exact_steps": 3317,
+   "paths": {
+    "hybrid": 77,
+    "m4": 3233,
+    "os_boundary": 6
+   },
+   "programs": 4,
+   "stdout_ok": 3,
+   "trace_steps": 15544,
+   "uops": 9195
+  },
+  "H0-proved": {
+   "complete": 2,
+   "exact_steps": 201,
+   "paths": {
+    "hybrid": 195,
+    "os_boundary": 4
+   },
+   "programs": 4,
+   "stdout_ok": 2,
+   "trace_steps": 15544,
+   "uops": 28565
+  },
+  "M4-proved-only": {
+   "complete": 1,
+   "exact_steps": 48,
+   "paths": {
+    "m4": 43,
+    "os_boundary": 2
+   },
+   "programs": 4,
+   "stdout_ok": 1,
+   "trace_steps": 15544,
+   "uops": 46
+  },
+  "M4-unguarded": {
+   "complete": 1,
+   "exact_steps": 48,
+   "paths": {
+    "m4": 43,
+    "os_boundary": 2
+   },
+   "programs": 4,
+   "stdout_ok": 1,
+   "trace_steps": 15544,
+   "uops": 46
+  }
+ },
+ "cert_manifest": "/Users/jakeholl/domains/isa-bench/runs/gate/m5d_v3-c_apps/20261030T220003/cert-manifest.json",
+ "cert_sha256": "b73b596313458c8d9b8ebfad6fbaf5150e1c1f80e60b1a12353ed9d026f57ea8",
+ "de_ref": "d55b5d7",
+ "label": "m5d_v3",
+ "machine": "/mnt/hdd8tb/uv-archive-stage/isa-m5d-v3/machine_full.pkl",
+ "mutations": 0,
+ "programs": {
+  "large_records-Os": {
+   "G0-m4+program": {
+    "all_steps_exact": false,
+    "exact_steps": 86,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 7,
+     "m4": 78
+    },
+    "status": "stop: no proved path at 0x40106b (inc)",
+    "stdout_ok": false,
+    "steps_run": 85,
+    "trace_steps": 12313
+   },
+   "H0-proved": {
+    "all_steps_exact": false,
+    "exact_steps": 77,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 76
+    },
+    "status": "stop: no proved path at 0x401019 (inc)",
+    "stdout_ok": false,
+    "steps_run": 76,
+    "trace_steps": 12313
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 15,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 14
+    },
+    "status": "stop: no proved path at 0x40104f (lea)",
+    "stdout_ok": false,
+    "steps_run": 14,
+    "trace_steps": 12313
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 15,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 14
+    },
+    "status": "stop: no proved path at 0x40104f (lea)",
+    "stdout_ok": false,
+    "steps_run": 14,
+    "trace_steps": 12313
+   }
+  },
+  "medium_sort-Os": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 3115,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 66,
+     "m4": 3047,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 3115,
+    "trace_steps": 3115
+   },
+   "H0-proved": {
+    "all_steps_exact": false,
+    "exact_steps": 8,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 7
+    },
+    "status": "stop: no proved path at 0x401015 (inc)",
+    "stdout_ok": false,
+    "steps_run": 7,
+    "trace_steps": 3115
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 7,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 6
+    },
+    "status": "stop: no proved path at 0x401011 (mov)",
+    "stdout_ok": false,
+    "steps_run": 6,
+    "trace_steps": 3115
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 7,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 6
+    },
+    "status": "stop: no proved path at 0x401011 (mov)",
+    "stdout_ok": false,
+    "steps_run": 6,
+    "trace_steps": 3115
+   }
+  },
+  "small_checksum-Os": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 108,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 4,
+     "m4": 102,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 108,
+    "trace_steps": 108
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 108,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 106,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 108,
+    "trace_steps": 108
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 18,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 17
+    },
+    "status": "stop: no proved path at 0x401067 (lea)",
+    "stdout_ok": false,
+    "steps_run": 17,
+    "trace_steps": 108
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 18,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 17
+    },
+    "status": "stop: no proved path at 0x401067 (lea)",
+    "stdout_ok": false,
+    "steps_run": 17,
+    "trace_steps": 108
+   }
+  },
+  "tiny_hello-Os": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 8,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 6,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 8,
+    "trace_steps": 8
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 8,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 6,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 8,
+    "trace_steps": 8
+   },
+   "M4-proved-only": {
+    "all_steps_exact": true,
+    "exact_steps": 8,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 6,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 8,
+    "trace_steps": 8
+   },
+   "M4-unguarded": {
+    "all_steps_exact": true,
+    "exact_steps": 8,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 6,
+     "os_boundary": 2
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 8,
+    "trace_steps": 8
+   }
+  }
+ },
+ "proofs": {
+  "dynamic": {
+   "no_record": 1363,
+   "os_boundary": 8,
+   "proved": 14173
+  },
+  "programs": 4,
+  "proved_answers": {
+   "dynamic": {
+    "sat": 14173
+   },
+   "static": {
+    "sat": 215
+   }
+  },
+  "static": {
+   "no_record": 17,
+   "os_boundary": 8,
+   "proved": 215
+  }
+ },
+ "proofs_total": {
+  "dynamic": {
+   "no_record": 76672,
+   "os_boundary": 84,
+   "proved": 8424512
+  },
+  "static": {
+   "no_record": 34,
+   "os_boundary": 68,
+   "proved": 4651
+  }
+ },
+ "prove_job": "job-f43c311f9544",
+ "refuted": [],
+ "run_job": "job-8202bffa8670",
+ "run_workers": 8,
+ "split": "heldout",
+ "suite": "c_apps",
+ "timeout_ms": 60000,
+ "view": "/mnt/hdd8tb/uv-archive-stage/isa-bench/gate-view/c_apps-2177235c2f0d71fc",
+ "workers": 10
+}

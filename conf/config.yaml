@@ -9,7 +9,7 @@ defaults:
   - override hydra/hydra_logging: disabled
   - _self_
 
-stage: eval   # reference | eval | matrix | report | register | train | debug | status
+stage: eval   # reference | eval | matrix | report | board | register | train | debug | gate | status
 models: []    # stage=matrix: model config names, all evaluated in one lease
 suites: []    # stage=matrix: suite names
 only: null    # restrict eval to these program tags (smoke), e.g. only=[tiny_hello-Os]
@@ -27,6 +27,25 @@ debug:
   program: null              # program tag to debug (e.g. small_checksum-Os)
   step: null                 # step index; default = first divergence
   open: false                # also open the MDB console on the recipe (direct-effect models)
+
+board:
+  source: mlflow             # mlflow (registered latest-eval versions) | local (outputs/eval)
+
+gate:                        # stage=gate: proof gate (isa repo, branch feat/m4-proof-gate) over a suite's reference
+  label: m5d_v3
+  hybrid_root: ../.worktrees/isa-hybrid
+  machine: /mnt/hdd8tb/uv-archive-stage/isa-m5d-v3/machine_full.pkl   # sha256 d6694d04
+  de_ref: d55b5d7            # runtime commit the machine runs on (certificate is bound to machine + runtime)
+  cert_manifest: null        # reuse a frozen certificate (skips proving); must cover the suite's instructions
+  workers: 10                # prove workers (~1.3-1.9 GB each)
+  run_workers: 8             # gated-run workers (~1.5-1.8 GB each; 10 workers at 16 GB was killed_ram, job-b47d3ef0df05)
+  timeout_ms: 60000          # Z3 per obligation
+  arms: [G0-m4+program, M4-unguarded, M4-proved-only, H0-proved]
+  mutations: 0               # mutation audit of the certificate (300 = the M5d v3 audit)
+  prove_ram_mb: 20000
+  prove_est_wall_s: 900
+  run_ram_mb: 20000
+  run_est_wall_s: 900
 
 paths:
   reference: outputs/reference/${suite.name}

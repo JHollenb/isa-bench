@@ -7,6 +7,8 @@
   python -m isa_bench stage=register model=de_mamba                 MLflow run + registry version with results
   python -m isa_bench stage=train model=de_mamba model.name=de_mamba_s674 model.train.seed=674
   python -m isa_bench stage=debug model=de_mamba suite=c_apps [debug.program=tiny_hello-Os]
+  python -m isa_bench stage=board [board.source=local]              correctness + compute table (MLflow registry)
+  python -m isa_bench stage=gate suite=c_apps                       proof-gated M5d run over a suite
   python -m isa_bench stage=status
 """
 from __future__ import annotations
@@ -264,6 +266,14 @@ def main(raw: DictConfig) -> None:
         run_evals(cfg, models, suites, name=f"matrix-{len(models)}x{len(suites)}")
     elif stage == "report":
         stage_report(cfg)
+    elif stage == "board":
+        from .board import run_board
+
+        run_board(cfg)
+    elif stage == "gate":
+        from .gate import run_gate
+
+        run_gate(cfg)
     elif stage == "register":
         stage_register(cfg)
     elif stage == "train":
