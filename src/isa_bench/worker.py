@@ -40,8 +40,16 @@ def host() -> dict:
     except OSError:
         pass
     gcc = run(["gcc", "--version"]).stdout.splitlines()[:1]
-    return {"node": platform.node(), "cpu": cpu, "python": sys.version.split()[0], "gcc": gcc,
-            "uname": platform.release()}
+    libc = run(["ldd", "--version"]).stdout.splitlines()[:1]
+    flags = []
+    try:  # ISA extensions glibc's ifunc/CPUID dispatch keys on (static glibc picks string routines from these)
+        line = next(ln for ln in Path("/proc/cpuinfo").read_text().splitlines() if ln.startswith("flags"))
+        flags = sorted(set(line.split(":", 1)[1].split()) & {"sse4_2", "avx", "avx2", "avx512f", "avx512bw", "avx512vl",
+                                                                "bmi1", "bmi2", "erms", "fsrm", "movbe", "lzcnt", "popcnt"})
+    except (OSError, StopIteration):
+        pass
+    return {"node": platform.node(), "cpu": cpu, "python": sys.version.split()[0], "gcc": gcc, "libc": libc,
+            "cpu_isa_flags": flags, "uname": platform.release()}
 
 
 def mark(tag: str, payload: dict) -> None:
@@ -63,6 +71,9 @@ def reference(job: dict) -> None:
             raise RuntimeError(f"tool build failed {name}: {b.stderr[-800:]}")
     summary = {"suite": suite, "host": host(), "programs": {}}
     src_dir = ROOT / suite["dir"]
+    # a suite may pin the traced program's environment (glibc suites: a clean env plus GLIBC_TUNABLES that steer
+    # CPUID-based ifunc dispatch); None inherits the worker's environment as before
+    penv = {k: str(v) for k, v in suite["env"].items()} if suite.get("env") is not None else None
     for name in suite["programs"]:
         for variant, flags in suite["variants"].items():
             tag = f"{name}-{variant}"
@@ -90,11 +101,11 @@ def reference(job: dict) -> None:
             rec["static_instructions"] = sum(1 for ln in dis.splitlines() if ln[:1] == " " and ":\t" in ln)
             timing = []
             for _ in range(int(job.get("native_repeats", 7))):
-                m = run([tools / "native_measure", elf, pdir / "stdout.native", pdir / "stderr.native"], timeout=60)
+                m = run([tools / "native_measure", elf, pdir / "stdout.native", pdir / "stderr.native"], timeout=60, env=penv)
                 timing.append(json.loads(m.stdout))
             rec["native_timing"] = timing
             tr = run([tools / "trace_full", elf, pdir / "stdout", pdir / "stderr", pdir / "trace.bin", pdir / "mem.bin",
-                      suite.get("max_trace_steps", 5_000_000)], timeout=7200)
+                      suite.get("max_trace_steps", 5_000_000)], timeout=7200, env=penv)
             status = json.loads(tr.stdout.strip().splitlines()[-1]) if tr.stdout.strip() else {"kind": "none"}
             raw = np.fromfile(pdir / "trace.bin", dtype=np.uint64).reshape(-1, 18)
             np.savez_compressed(pdir / "trace.npz", steps=raw)

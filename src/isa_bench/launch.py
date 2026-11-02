@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .adapters import REPO, tree_sha256
 
-WORKSPACE = REPO.parent
+WORKSPACE = Path(os.environ.get("ISA_BENCH_WORKSPACE", REPO.parent))  # set it when running from a git worktree
 STORE = "/mnt/hdd8tb/uv-archive-stage/isa-bench"
 IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
 
@@ -97,7 +97,7 @@ def submit(run_dir: Path, payload: Path, job: dict, *, executor: dict, experimen
                    model_processes=model_processes, task_family=task, max_local_work_items=max(8, model_processes),
                    checkpoint_policy="isa-bench: one frozen model per fresh cell subprocess; no fitting during eval")
                if model_processes >= 2 else js.one_lease_scheduling_contract()}
-    env = ["/usr/bin/env", "UV_CACHE_DIR=/tmp/isa-uv-cache", "PYTHONPATH=src", "OMP_NUM_THREADS=1",
+    env = ["/usr/bin/env", "UV_CACHE_DIR=/tmp/isa-uv-cache", "UV_OFFLINE=1", "PYTHONPATH=src", "OMP_NUM_THREADS=1",
            "MKL_NUM_THREADS=1", "OPENBLAS_NUM_THREADS=1"]
     if not gpu:
         env.append("CUDA_VISIBLE_DEVICES=")
