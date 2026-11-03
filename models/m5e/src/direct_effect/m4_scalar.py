@@ -87,6 +87,20 @@ def div_s(hi, lo, b, w, signed):
     return q & MASKS[w], r & MASKS[w]
 
 
+class PredIn:
+    """M5e predicate inputs (mirror of m4_learn.pred_columns): index < 6 = a flag; 6 + 2r + c = (register r == c)."""
+    __slots__ = ("flags", "regs")
+
+    def __init__(self, flags, regs):
+        self.flags, self.regs = flags, regs
+
+    def __getitem__(self, i):
+        if i < 6:
+            return self.flags[i]
+        r, c = divmod(i - 6, 2)
+        return int(self.regs[r] == c)
+
+
 def _pidx(combo, flags):
     idx = 0
     for f in combo:
@@ -153,6 +167,8 @@ class Scalar:
             return MASK64 if (st["regs"][e[1]] >> (e[2] - 1)) & 1 else 0
         if op == "next":
             return st["next"]
+        if op == "cur":  # M5e: the instruction's own address
+            return st["rip"]
         if op == "old":
             return old
         if op == "addr":
@@ -192,11 +208,11 @@ class Scalar:
             res = q if part == "q" else r
             return (res, {}) if sig else res
         if op == "pred":
-            v, unobs = pred_s(e, st["flags"])
+            v, unobs = pred_s(e, st["pin"])
             st["abstain"] |= unobs
             return v
         if op == "select":
-            v, unobs = pred_s(e[1], st["flags"])
+            v, unobs = pred_s(e[1], st["pin"])
             st["abstain"] |= unobs
             return self.ev(e[2], st, old) if v else self.ev(e[3], st, old)
         raise ValueError(op)
@@ -214,7 +230,7 @@ class Scalar:
             pos += size
         L = k + sum(runs)
         st = {"regs": state["regs"], "flags": state["flags"], "runs": rv, "mem": mem, "abstain": False,
-              "next": self.add(state["rip"], L)}
+              "next": self.add(state["rip"], L), "rip": state["rip"], "pin": PredIn(state["flags"], state["regs"])}
         regs = list(state["regs"])
         rip = self.ev(eff["rip"], st, None)
         writes = []

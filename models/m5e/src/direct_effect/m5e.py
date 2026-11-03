@@ -195,7 +195,7 @@ def run_programs_inproc(m, dec, base, names, log):
         p = Path(base) / n
         tr = np.load(p / "trace.npz")["steps"]
         t = time.time()
-        r = R.run_program(m, dec, p / "mem.bin", tr, scalar=sc)
+        r = R.run_program(m, dec, p / "mem.bin", tr, scalar=sc, cpu=R.cpu_model(p / "mem.bin", tr))  # supplied CPUID/XGETBV
         nat = json.loads((p / "native.json").read_text())
         r["done"] = bool(r["status"] == "exit" and r["exit_code"] == nat.get("native_exit") and r["stdout"] == nat.get("native_stdout"))
         r["wall_s"] = round(time.time() - t, 1)
@@ -295,6 +295,7 @@ def refine_flags(m, base, data, log):
     left for some flag is dropped. A record whose chosen taps or registers disagree with a row is left alone (it is
     reported: the record itself is refuted there). Edits go to the record templates (shared by every member)."""
     stats = Counter()
+    refuted_recs = []
     by_key = {}
     for i, w in enumerate(data["window"]):
         by_key.setdefault(bytes(w[:15]), []).append(i)
@@ -319,6 +320,7 @@ def refine_flags(m, base, data, log):
         g = x.g
         good = (regs == g["a_regs"]).all(1) & (rip == g["a_rip"])
         if not good.all():
+            refuted_recs.append(ri)
             stats["registers refuted"] += 1
             log(f"[refine] rec {ri} {kb.hex()}: registers/RIP wrong on {int((~good).sum())}/{len(rows)} rows (left alone)")
             continue
@@ -363,6 +365,7 @@ def refine_flags(m, base, data, log):
                     found = (j, sig2, ok)
                     break
             if found is None:
+                refuted_recs.append(ri)
                 stats["chosen taps refuted, no alternative"] += 1
                 log(f"[refine] rec {ri} {kb.hex()}: chosen taps {refuted} wrong on these rows, no consistent alternative (left alone)")
                 continue
@@ -434,7 +437,7 @@ def refine_flags(m, base, data, log):
             T["src_alts"] = out
         stats["records refined"] += 1
     log(f"[refine] {dict(stats)}")
-    return dict(stats)
+    return dict(stats, refuted_records=sorted(set(refuted_recs)))
 
 
 def fit_stops(m, windows, grid, seed, log, n_rows=24, nearby=2, n_check=64):
@@ -572,6 +575,16 @@ def worker_m5e():
             rec["sweep_before"] = sweep_score(m, dec, sw, log, f"r{rnd} before")
             rec["refine"] = refine_flags(m, base, sw["data"], log)
             del sw
+            # a literal record the fresh rows refute (M5d refute: stale records lose to new rows) is dropped and its stop
+            # window refitted from fresh rows like a no-record stop; merged records stay (they abstain there)
+            drop = {i for i in rec["refine"]["refuted_records"] if m.records[i].get("members", 1) == 1 and not m.records[i]["fields"]}
+            if drop:
+                for n, (st, w) in sorted(stops.items()):
+                    if st == "abstain_predicate" and w and base._match(bytes.fromhex(w)) in drop:
+                        nore[n] = w
+                log(f"[m5e] dropped refuted literal records {sorted(drop)} ({[m.records[i]['key'].hex() for i in sorted(drop)]})")
+                m.records = [r for i, r in enumerate(m.records) if i not in drop]
+                rec["dropped_records"] = sorted(drop)
         if nore:
             new, rec["fit"] = fit_stops(m, nore, grid, cfg["seed"] * 1000 + 950 + rnd, log, n_rows=cfg.get("fit_rows", 24))
             m.records = m.records + new
@@ -636,4 +649,93 @@ def worker_eadiag():
     for b in bad[:60]:
         log(json.dumps(b, default=str)[:1500])
     (out / "eadiag.json").write_text(json.dumps(bad, indent=1, default=str))
+    pack(out)
+
+
+def worker_freeze():
+    """M5e freeze: the M5e lease machine (v3 + guards + EA unit + refinement + fitted stops) plus builder B's appended
+    glibc literal records (append-only extension of v3), rebuilt decoder, saved with its sha256; every staged dev program
+    (dev46 + isa-bench c_apps + glibc) run in this process on the frozen machine."""
+    cfg = json.loads(Path("study.json").read_text())
+    out = Path("result")
+    out.mkdir(exist_ok=True)
+    logf = open(out / "log.txt", "w")
+
+    def log(msg):
+        print(msg, flush=True)
+        logf.write(msg + "\n")
+        logf.flush()
+
+    from isa_lab.full_custody import pack, publish
+    t0 = time.time()
+    m, dec = load_machine(cfg["machine"], cfg["machine_sha256"])
+    unit = dec.unit
+    res = {"config": cfg, "m5e_records": len(m.records)}
+    if cfg.get("ext_machine"):
+        mb, _ = load_machine(cfg["ext_machine"], cfg["ext_sha256"])
+        with open(cfg["ext_machine"], "rb") as f:
+            k = pickle.load(f)["new_records"]
+        new, lits = mb.records[-k:], mb.literal_records[-k:]
+        mine = {(bytes(r["key"]), bytes(r["mask"])) for r in m.records}
+        keep = [(r, lr) for r, lr in zip(new, lits) if (bytes(r["key"]), bytes(r["mask"])) not in mine]
+        res["ext"] = {"new_records": k, "kept": len(keep), "keys": [bytes(r["key"]).hex() for r, _ in keep],
+                      "collisions": [bytes(r["key"]).hex() for r in new if (bytes(r["key"]), bytes(r["mask"])) in mine]}
+        m.records = m.records + [r for r, _ in keep]
+        m.literal_records = list(m.literal_records) + [lr for _, lr in keep]
+        log(f"[freeze] builder B glibc records: {res['ext']}")
+        del mb
+        gc.collect()
+    base = L.FabricDecoder(m.records, m.code_map)
+    progs = Path(cfg["native_dir"])
+    names = sorted(p.name for p in progs.glob("*") if p.is_dir())
+    grid = I.make_grid()
+    res["polish"] = []
+    for rnd in range(cfg.get("polish_rounds", 0)):
+        # the M5e lease rounds (flag refinement + fitted stops) once more on the merged machine, glibc programs included
+        dec = L.EADecoder(base, unit)
+        pr = run_programs_inproc(m, dec, progs, names, log)
+        done, wrong, stops = program_summary(pr)
+        rec = {"round": rnd, "done": done, "wrong_programs": wrong, "stops": stops}
+        res["polish"].append(rec)
+        log(f"[freeze] polish {rnd}: done {done}/{len(names)}, wrong {wrong}")
+        if wrong:
+            raise SystemExit("a program took a wrong step: not freezing")
+        gate = {f"p{rnd}:{n}": w[:16] for n, (st, w) in sorted(stops.items()) if st == "abstain_predicate" and w}
+        nore = {n: w for n, (st, w) in sorted(stops.items()) if st == "abstain" and w}
+        if gate:
+            try:
+                sw = sweep_data({}, cfg["seed"] * 1000 + 970 + rnd, grid, cfg["workers"], gate=gate, n_gate=cfg.get("refine_rows", 2000))
+            except TypeError:  # no window identified outside the held-out cells: no rows to sample
+                sw = None
+                log(f"[freeze] polish {rnd}: no sampleable predicate stop ({sorted(gate)})")
+            if sw is not None:
+                rec["refine"] = refine_flags(m, base, sw["data"], log)
+            del sw
+        if nore:
+            new, rec["fit"] = fit_stops(m, nore, grid, cfg["seed"] * 1000 + 980 + rnd, log, n_rows=cfg.get("fit_rows", 96))
+            m.records = m.records + new
+        base = L.FabricDecoder(m.records, m.code_map)
+        gc.collect()
+    dec = L.EADecoder(base, unit)
+    with open(out / "machine_full.pkl", "wb") as f:
+        pickle.dump({"m": m, "dec": dec}, f)
+    h = hashlib.sha256((out / "machine_full.pkl").read_bytes()).hexdigest()
+    res["machine_sha256"] = h
+    log(f"[freeze] machine_full.pkl sha256 {h}: {len(m.records)} records t={time.time() - t0:.0f}s")
+    publish([str(out / "machine_full.pkl")], "m5e-frozen-machine")
+    with open(out / "machine_full.pkl", "rb") as f:  # run the bytes that were frozen
+        mm = pickle.load(f)
+    pr = run_programs_inproc(mm["m"], mm["dec"], progs, names, log)
+    done, wrong, stops = program_summary(pr)
+    groups = cfg.get("groups", {})
+    res["programs"] = {n: {k: pr[n].get(k) for k in ("status", "steps_run", "native_steps", "done", "first_divergence_regs_rip",
+                                                      "abstain_at", "divergence_regs_rip")} for n in names}
+    res["summary"] = {"done": done, "of": len(names), "wrong_programs": wrong, "stops": stops}
+    for g, members in groups.items():
+        sel = [n for n in names if n in members]
+        res["summary"][g] = {"done": sum(pr[n]["done"] for n in sel), "of": len(sel),
+                             "wrong": [n for n in sel if pr[n].get("first_divergence_regs_rip") is not None]}
+    log(f"[freeze] programs done {done}/{len(names)}, wrong {wrong}; groups "
+        f"{ {g: res['summary'][g] for g in groups} } t={time.time() - t0:.0f}s")
+    (out / "m5e_freeze.json").write_text(json.dumps(res, indent=1, default=str))
     pack(out)

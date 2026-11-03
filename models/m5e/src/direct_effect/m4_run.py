@@ -119,7 +119,49 @@ def eflags_to_flags(e):
     return [(int(e) >> b) & 1 for b in FLAG_BITS]
 
 
-def run_program(m, dec, mem_path, trace, max_steps=None, log=None, oracle=None, scalar=None):
+CPUID, XGETBV = b"\x0f\xa2", b"\x0f\x01\xd0"
+
+
+def cpu_model(mem_path, trace):
+    """M5e supplied CPU model: the reference host's CPUID / XGETBV answers, read off the native trace at each such step
+    (inputs EAX/ECX -> outputs), as a hypervisor serves a fixed CPUID table. Not learned; the learned machine never sees
+    these instructions (identify() has no form for them). Returns {("cpuid", eax, ecx) | ("xgetbv", ecx): regs after}."""
+    pages, _ = load_image(mem_path)
+    mem = ProgMem(pages)
+    steps = np.asarray(trace)
+    table = {}
+    for rip in np.unique(steps[:-1, 0]).tolist():
+        w = bytes(mem.byte((rip + j) & MASK64) for j in range(3))
+        if w[:2] != CPUID and w != XGETBV:
+            continue
+        for i in np.flatnonzero(steps[:-1, 0] == np.uint64(rip)).tolist():
+            before, after = steps[i], steps[i + 1]
+            key = ("cpuid", int(before[1]) & 0xFFFFFFFF, int(before[2]) & 0xFFFFFFFF) if w[:2] == CPUID \
+                else ("xgetbv", int(before[2]) & 0xFFFFFFFF)
+            table[key] = [int(v) for v in after[1:17]]
+    return table
+
+
+def cpu_step(cpu, state, window):
+    """The supplied CPU model at a CPUID / XGETBV window: (new state, None) or (None, reason) when unknown/absent."""
+    if cpu is None:
+        return None, None
+    if window[:2] == CPUID:
+        key, ln, outs = ("cpuid", state["regs"][0] & 0xFFFFFFFF, state["regs"][1] & 0xFFFFFFFF), 2, (0, 1, 2, 3)
+    elif window[:3] == XGETBV:
+        key, ln, outs = ("xgetbv", state["regs"][1] & 0xFFFFFFFF), 3, (0, 2)
+    else:
+        return None, None
+    after = cpu.get(key)
+    if after is None:
+        return None, f"cpu_model_missing:{key}"
+    regs = list(state["regs"])
+    for r in outs:  # RAX, RCX, RDX, RBX (GPR order) as the instruction writes them; everything else unchanged
+        regs[r] = after[r]
+    return {"rip": (state["rip"] + ln) & MASK64, "regs": regs, "flags": list(state["flags"])}, None
+
+
+def run_program(m, dec, mem_path, trace, max_steps=None, log=None, oracle=None, scalar=None, cpu=None):
     """Execute the learned machine from the native initial state; compare with the native trace step by step."""
     pages, _ = load_image(mem_path)
     mem = ProgMem(pages)
@@ -140,11 +182,17 @@ def run_program(m, dec, mem_path, trace, max_steps=None, log=None, oracle=None, 
     i = 0
     for i in range(max_steps):
         window = bytes(mem.byte((state["rip"] + j) & MASK64) for j in range(15))
-        ri, eff = dec.lookup(window)
-        if eff is None:
+        cpu_new, cpu_why = cpu_step(cpu, state, window)
+        if cpu_why is not None:
+            status = cpu_why
+            break
+        ri, eff = (None, None) if cpu_new is not None else dec.lookup(window)
+        if cpu_new is not None:
+            new, trap = cpu_new, 0
+        elif eff is None:
             status, abstentions = "abstain", abstentions + 1
             break
-        if scalar is not None:
+        elif scalar is not None:
             new, writes, trap, abst = scalar.apply(eff, state, window, mem)
             if abst:
                 status, abstentions = "abstain_predicate", abstentions + 1
@@ -233,7 +281,7 @@ def os_boundary(state, mem, stdout, rflags_rest):
     return "unsupported_syscall", None
 
 
-def oracle_program(mem_path, trace, max_steps=None, record=False):
+def oracle_program(mem_path, trace, max_steps=None, record=False, cpu=None):
     """The label source on the same program: Unicorn single steps from the same image, compared with native."""
     import unicorn as U
     from unicorn import x86_const as X
@@ -262,11 +310,22 @@ def oracle_program(mem_path, trace, max_steps=None, record=False):
     for i in range(max_steps):
         trap.clear()
         rip0 = rip
-        try:
-            uc.emu_start(rip, (rip + 0x10000) & MASK64, count=1)
-        except U.UcError as e:
-            status = f"error:{e}"
-            break
+        win = bytes(uc.mem_read(rip, 3))
+        if cpu is not None and (win[:2] == CPUID or win == XGETBV):  # M5e: the same supplied CPU model as the learned run
+            cur = {"rip": rip, "regs": [uc.reg_read(r) for r in ids], "flags": [0] * 6}
+            new, why = cpu_step(cpu, cur, win)
+            if why is not None:
+                status = why
+                break
+            for rid, v in zip(ids, new["regs"]):
+                uc.reg_write(rid, v)
+            uc.reg_write(X.UC_X86_REG_RIP, new["rip"])
+        else:
+            try:
+                uc.emu_start(rip, (rip + 0x10000) & MASK64, count=1)
+            except U.UcError as e:
+                status = f"error:{e}"
+                break
         rip = uc.reg_read(X.UC_X86_REG_RIP)
         if trap:
             rip = rip0 + 2

@@ -18,3 +18,4 @@ models:
   de_mamba: {family: direct_effect, artifact: artifacts/frozen/de_mamba}
   de_hydra: {family: direct_effect, artifact: artifacts/frozen/de_hydra}
   m5d: {family: m5d, artifact: artifacts/frozen/m5d}
+  m5e: {family: m5e, artifact: artifacts/frozen/m5e}

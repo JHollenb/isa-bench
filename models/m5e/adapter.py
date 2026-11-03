@@ -1,4 +1,4 @@
-"""M5e structured learned machine (isa feat/m5e @ 108c04f): M5d-final v3 + byte-register/SIB-index guards, the shared
+"""M5e structured learned machine (isa feat/m5e @ daf25b4): M5d-final v3 + byte-register/SIB-index guards, the shared
 effective-address unit (operation x address composition where no whole record matches), flag refinement on fresh rows
 of dev stops, fitted no-record stops.
 
@@ -34,7 +34,7 @@ class Adapter(Base):
         records = getattr(self.dec, "records", None)
         self.metadata = {**self.base_metadata(), "parameter_count": 0,
                          "learned_records": len(records) if records is not None else None,
-                         "implementation": "M5e structured machine (records + SPF automata + EA unit), runtime 108c04f"}
+                         "implementation": "M5e structured machine (records + SPF automata + EA unit), runtime daf25b4"}
 
     def run(self, program_dir, trace, max_steps):
         R = self.R

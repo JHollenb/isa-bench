@@ -53,6 +53,10 @@ MENU = [
     ("field-coverage", "ADDED (M4; revised M5): a record's field takes a code only with evidence -- the code was seen at the record's instruction length in rows matching the record, or its low bits were seen working (and never selecting another length) in a sibling record with a field at the same bit position and the same fixed bits in that byte, pooled across key lengths, byte positions and REX/non-REX siblings; any other code leaves the record closed (abstain). Reason: M4 fib-O2 step 26 (rm=100 claimed as a register) and M4 held-out bsearch-O2 step 9 (the same, in a non-REX record); REVISED (M5c): a code is evidence only where the record's own template is EXACT on rows of that code (same length is not enough: SIB index 100 = no index keeps the length), and a row of the record's length that the template gets wrong is evidence against its one unseen code"),
     ("memory", "memory is an external page store (supplied); the learner emits load addresses and store address/value; fetch of the instruction window at RIP is supplied"),
     ("os", "SYSCALL is a learned record of kind trap; the OS boundary (write/exit, RAX/RCX/R11 effects) is supplied"),
+    ("register-condition", "ADDED (M5e): when no flag predicate explains a condition, it may read register tests (register == 0, register == 1) of ONE register (at most both tests, a 4-entry table; version space over registers as for flags). Reason: glibc census job-454b57b4777a, rep stos at step 48 of every static glibc program: a string-op step does nothing at a zero count and falls through after the last iteration"),
+    ("current-rip", "ADDED (M5e): the RIP update may select the instruction's own address (the step repeats it) against the fall-through. Reason: as register-condition (REP string steps)"),
+    ("select-step", "ADDED (M5e): a conditional write may select between the old value and the old value plus a learned constant (the adder), as it may between the old value and another operand. Reason: as register-condition (pointer and count updates of a REP step)"),
+    ("flag-only-shift", "ADDED (M5e): a flags-only effect may read the signals of a right shift (count from a register's low byte or a run, raw or masked 31/63; one signal per flag) as well as of a table op. Reason: glibc census, bt at step 1245 (CF = the tested bit = the shifted value's bottom bit)"),
 ]
 
 # ------------------------------------------------------------------ tables
@@ -261,6 +265,13 @@ class Ctx:
     def add(self, a, b):
         return self.m.luts[self.m.adder].run(a, b, 0, 64)
 
+    @property
+    def pin(self):
+        """Predicate inputs (flags + M5e register tests), cached per context."""
+        if getattr(self, "_pin", None) is None:
+            self._pin = pred_columns(self.g["flags"], self.g["regs"])
+        return self._pin
+
 
 def ev(m, e, x, old=None, want_sig=False):
     """Evaluate expression e over the context (vectorized). old = the target's old value (for ['old'])."""
@@ -322,10 +333,12 @@ def ev(m, e, x, old=None, want_sig=False):
         if want_sig:
             return res, {}
         return res
+    if op == "cur":  # M5e: the instruction's own address
+        return x.g["rip"].astype(U64)
     if op == "pred":
-        return eval_pred(e, x.g["flags"]).astype(U64)
+        return eval_pred(e, x.pin).astype(U64)
     if op == "select":
-        p = eval_pred(e[1], x.g["flags"])
+        p = eval_pred(e[1], x.pin)
         return np.where(p == 1, ev(m, e[2], x, old), ev(m, e[3], x, old))
     raise ValueError(op)
 
@@ -347,6 +360,17 @@ def eval_addr(m, a, x):
     for t in terms[1:]:
         s = x.add(s, t)
     return s
+
+
+def pred_columns(flags, regs):
+    """M5e predicate inputs: the six flags, then for every register r the tests (r == 0) at NF + 2r and (r == 1) at
+    NF + 2r + 1. Indices < NF are the flags exactly as before, so every flag predicate reads the same columns."""
+    flags = np.asarray(flags, np.int64)
+    if regs is None:
+        return flags
+    regs = np.asarray(regs, U64)
+    ext = np.stack([(regs[:, r] == U64(c)).astype(np.int64) for r in range(16) for c in (0, 1)], 1)
+    return np.concatenate([flags, ext], 1)
 
 
 def eval_pred(p, flags):
@@ -538,6 +562,39 @@ def induce_pred(flags, y, care=None, max_size=3):
                 found.append((size, int((tab < 0).sum()), list(combo), [int(v) if v >= 0 else 0 for v in tab],
                               [int(i) for i in np.flatnonzero(tab < 0)]))
     if not found:
+        return None
+    found.sort(key=lambda c: (c[0], c[1]))
+    best = found[0]
+    return ["pred", best[2], best[3], best[4], [[c[2], c[3], c[4]] for c in found[1:]]]
+
+
+REG_PRED_ALT_CAP = 8
+
+
+def induce_pred_regs(cols, y, care=None):
+    """M5e register condition: the smallest set of tests of ONE register ((r == 0), (r == 1) or both) whose truth table
+    explains y on the care rows; every other register's consistent reading is kept as a version-space alternative
+    (more than REG_PRED_ALT_CAP readings: None, the condition is not determined). cols = pred_columns(flags, regs)."""
+    cols = np.asarray(cols, np.int64)
+    y = np.asarray(y, np.int64)
+    care = np.ones(len(y), bool) if care is None else care
+    if care.sum() == 0 or cols.shape[1] <= NF:
+        return None
+    yc, fc = y[care], cols[care]
+    found = []
+    for r in range(16):
+        for combo in ([NF + 2 * r], [NF + 2 * r + 1], [NF + 2 * r, NF + 2 * r + 1]):
+            idx = np.zeros(len(yc), np.int64)
+            for f in combo:
+                idx = idx * 2 + fc[:, f]
+            if len(np.unique(idx)) < 2:
+                continue  # a test that never varies on the rows explains nothing
+            tab = np.full(1 << len(combo), -1, np.int64)
+            tab[idx] = yc
+            if np.array_equal(tab[idx], yc):
+                found.append((len(combo), int((tab < 0).sum()), combo, [int(v) if v >= 0 else 0 for v in tab],
+                              [int(i) for i in np.flatnonzero(tab < 0)]))
+    if not found or len(found) > REG_PRED_ALT_CAP:
         return None
     found.sort(key=lambda c: (c[0], c[1]))
     best = found[0]
@@ -813,6 +870,23 @@ class Synth:
                 p = induce_pred(x.g["flags"], isB.astype(np.int64), care)
                 if p is not None:
                     return ["select", p, Be, ["old"]]
+            # M5e: register conditions, and (select-step) the old value plus a learned constant as the other operand
+            step = []
+            ch = Om != V
+            if m.adder is not None and ch.any() and not ch.all():
+                b, ok = invert(m.luts[m.adder], Om[ch], V[ch], np.zeros(int(ch.sum()), np.int64), w)
+                if ok.all() and (b == b[0]).all():
+                    c = int(b[0])
+                    step.append((mask(m.luts[m.adder].run(Om, U64(c), 0, w), w).tobytes(),
+                                 ["table", m.adder, ["old"], ["const", c], w]))
+            for kb, Be in step + cands:
+                Bvv = np.frombuffer(kb, U64)
+                isB, isO = Bvv == V, Om == V
+                if not (isB | isO).all() or isO.all() or isB.all():
+                    continue
+                p = induce_pred_regs(x.pin, isB.astype(np.int64), isB ^ isO)
+                if p is not None:
+                    return ["select", p, Be, ["old"]]
         return None
 
     # ---- the whole group
@@ -898,6 +972,14 @@ class Synth:
                 p = induce_pred(g["flags"], taken.astype(np.int64), taken ^ fall)
                 if p is not None:
                     return ["select", p, e_t, ["next"]]
+        # M5e (current-rip): the step repeats the instruction or falls through, under a flag or register condition
+        stay, fall = g["a_rip"] == g["rip"], g["a_rip"] == x.next
+        if (stay | fall).all() and stay.any() and fall.any() and not any(x.runs):
+            p = induce_pred(g["flags"], stay.astype(np.int64), stay ^ fall)
+            if p is None:
+                p = induce_pred_regs(x.pin, stay.astype(np.int64), stay ^ fall)
+            if p is not None:
+                return ["select", p, ["cur"], ["next"]]
         if x.runs != (0, 0) and any(x.runs):
             raise Fail("rip with unused runs")
         idx = self.value_index(64, with_addr=False)
@@ -1069,7 +1151,41 @@ class Synth:
             eff = found[0]
             eff["src_cands"] = [c["src"] for c in found[1:]]
             return eff
+        found = self.flag_search_shift(before, after)  # M5e (flag-only-shift)
+        if found:
+            eff = found[0]
+            eff["src_cands"] = [c["src"] for c in found[1:]]
+            return eff
         raise Fail("flags")
+
+    def flag_search_shift(self, before, after):
+        """M5e flags-only shift readings (bit test): a right shift of a register by a register's low byte or a run (raw
+        or masked 31/63) whose signals explain every flag with taps; every consistent reading is kept (version space)."""
+        x = self.x
+        counts = []
+        for j, rv in enumerate(x.run_vals):
+            if rv is not None and rv[1] == 1:
+                counts.append((["run", j, "z"], (rv[0] & U64(0xFF)).astype(np.int64)))
+        for r in range(16):
+            counts.append((["reg", r, 8, "z"], (x.g["regs"][:, r] & U64(0xFF)).astype(np.int64)))
+        counts = [c for ce, cv in counts for c in ((["cmask", ce, 31], cv & 31), (["cmask", ce, 63], cv & 63), (ce, cv))]
+        found = []
+        for w in (64, 32):
+            for r in range(16):
+                Ae, Av = ["reg", r, w, "z"], mask(x.g["regs"][:, r], w)
+                for Ce, Cv in counts:
+                    res, spill = shift_gather(Av, Cv, ("r", "z"), w)
+                    taps = self._taps(shift_signals(Av, res, spill, Cv, w), before, after)
+                    # single-signal taps only (each flag = one shift signal, its old value or a constant): a multi-signal
+                    # tap over an unrelated register fits random rows often enough to overflow the cap (bt fixture,
+                    # job-166fb9584415: 16-27 readings per key at 32 rows)
+                    if taps is None or any(len(c[0][0]) > 1 for c in taps.values()):
+                        continue
+                    found.append({"src": ["shift", ["r", "z"], Ae, Ce, w], "src_old": None,
+                                  "taps": {f: c[0] for f, c in taps.items()}, "tap_cands": taps})
+                    if len(found) > FLAG_SEARCH_CAP:
+                        raise Fail("flags ambiguous (cap)")
+        return found
 
 
 FLAG_SEARCH_CAP = 16
@@ -1179,12 +1295,12 @@ def apply_effect(m, eff, x):
     abstain = np.zeros(n, bool)
     rip_e = eff["rip"]
     if rip_e[0] == "select":
-        abstain |= _pred_unobserved(rip_e[1], g["flags"])
+        abstain |= _pred_unobserved(rip_e[1], x.pin)
     rip = ev(m, rip_e, x)
     writes = []
     olds = {}
     for tgt, e in eff["writes"]:
-        abstain |= _expr_abstain(e, g["flags"])
+        abstain |= _expr_abstain(e, x.pin)
         if tgt[0] == "reg":
             _, r, w, merge = tgt
             old = mask(g["regs"][:, r], w)

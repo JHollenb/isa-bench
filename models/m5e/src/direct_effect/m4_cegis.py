@@ -70,14 +70,15 @@ def _run_job(name):
     pdir = Path(base) / name
     tr = np.load(pdir / "trace.npz")["steps"]
     t = time.time()
-    r = R.run_program(m, dec, pdir / "mem.bin", tr, oracle=_P["traj"][name], scalar=Scalar(m))
+    r = R.run_program(m, dec, pdir / "mem.bin", tr, oracle=_P["traj"][name], scalar=Scalar(m),
+                      cpu=R.cpu_model(pdir / "mem.bin", tr))  # M5e: supplied CPUID/XGETBV (glibc programs)
     r["wall_s"] = round(time.time() - t, 1)
     return name, r
 
 
 def _oracle_job(pdir):
     tr = np.load(Path(pdir) / "trace.npz")["steps"]
-    orc = R.oracle_program(Path(pdir) / "mem.bin", tr, record=True)
+    orc = R.oracle_program(Path(pdir) / "mem.bin", tr, record=True, cpu=R.cpu_model(Path(pdir) / "mem.bin", tr))
     return Path(pdir).name, orc
 
 

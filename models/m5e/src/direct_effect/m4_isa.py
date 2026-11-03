@@ -215,6 +215,48 @@ FORMS = _catalog()
 FORM_NAMES = tuple(sorted(FORMS))
 
 
+# ------------------------------------------------------------------ M5e glibc forms (R2 dev census, 2026-11-02)
+# Integer forms static glibc executes that the M4 catalog lacks, ranked by the glibc census (job-454b57b4777a: endbr64
+# at step 0 of every program, addr32 call at 11, rep stos at 48, a 16-bit store at 289, bt at 1245, ...). They are kept
+# OUT of FORM_NAMES so the blind base rows (generate / generate_stratified over FORM_NAMES) stay bit-for-bit those of the
+# M5c'/M5d machines; identify() and generate_targeted() see them, so dev-guided CEGIS (programs choose keys only) can
+# sample them. Every label is still a fresh random-state Unicorn row.
+
+
+def _glibc_catalog():
+    F = []
+    F.append(Form("endbr64", b"\x0f\x1e\xfa", 64, "none", prefix=b"\xf3", rex="none", rows=6))
+    F.append(Form("call_rel32_a32", b"\xe8", 64, "none", rel=4, prefix=b"\x67", rex="none", rows=12))  # "addr32 call"
+    F.append(Form("jmp_rm_nt", b"\xff", 64, "digit", 4, rm="any", prefix=b"\x3e", rex="noW", special="target"))  # notrack jmp
+    F.append(Form("push_rm", b"\xff", 64, "digit", 6, rm="m", rex="noW", rows=12))
+    for rmk in ("r", "m"):
+        F.append(Form(f"mov_rm16{rmk}_r", b"\x89", 16, "rm_r", rm=rmk, prefix=b"\x66"))
+        F.append(Form(f"mov_r_rm16{rmk}", b"\x8b", 16, "rm_r", rm=rmk, prefix=b"\x66"))
+        F.append(Form(f"mov_rm16{rmk}_i", b"\xc7", 16, "digit", 0, rm=rmk, imm=2, prefix=b"\x66", rows=12))
+        F.append(Form(f"test_rm16{rmk}_r", b"\x85", 16, "rm_r", rm=rmk, prefix=b"\x66", rows=24))
+        F.append(Form(f"cmp_rm16{rmk}_r", b"\x39", 16, "rm_r", rm=rmk, prefix=b"\x66"))
+        F.append(Form(f"cmp_rm16{rmk}_i", b"\x81", 16, "digit", 7, rm=rmk, imm=2, prefix=b"\x66", rows=12))
+        F.append(Form(f"cmp_rm16{rmk}_i8", b"\x83", 16, "digit", 7, rm=rmk, imm=1, prefix=b"\x66", rows=12))
+        for w in (32, 64):
+            F.append(Form(f"xchg_rm{w}{rmk}_r", b"\x87", w, "rm_r", rm=rmk))
+    for w in (32, 64):
+        # register bit base only: a memory bit base with a register offset addresses a bit string beyond the operand
+        # 24+ rows: a flags-only effect with one informative flag bit per row; at 12 rows spurious table readings of CF
+        # exceed FLAG_SEARCH_CAP (measured, fixture job-0243f035b695) and the key abstains
+        F.append(Form(f"bt_rm{w}r_r", b"\x0f\xa3", w, "rm_r", rm="r", rows=32))
+        F.append(Form(f"bt_rm{w}r_i", b"\x0f\xba", w, "digit", 4, rm="r", imm=1, rows=32, special="bt_imm"))
+    for w, op in ((8, b"\xaa"), (32, b"\xab"), (64, b"\xab")):
+        F.append(Form(f"rep_stos{w}", op, w, "none", prefix=b"\xf3", rows=24, special="rep"))
+    return {f.name: f for f in F}
+
+
+GLIBC_FORMS = _glibc_catalog()
+GLIBC_FORM_NAMES = tuple(sorted(GLIBC_FORMS))
+assert not set(GLIBC_FORMS) & set(FORMS)
+FORMS.update(GLIBC_FORMS)  # FORM_NAMES (the blind base catalog) is unchanged
+IDENT_ORDER = FORM_NAMES + GLIBC_FORM_NAMES  # base forms first: no window the base catalog parses changes identity
+
+
 # ------------------------------------------------------------------ encoding
 
 
@@ -493,8 +535,23 @@ class Oracle:
         after_rip = uc.reg_read(X.UC_X86_REG_RIP)
         if trap:
             after_rip = (rip + 2) & MASK64  # the OS boundary owns SYSCALL; the step stops at the instruction
+        rl = _rep_string_len(window)
+        if rl and after_rip == rip and regs[1] != 0 and uc.reg_read(X.UC_X86_REG_RCX) == 0:
+            # M5e: QEMU's REP loop returns to the instruction once more after the final iteration (RCX = 0) and only then
+            # falls through; the CPU's single-step trap after the final iteration already points at the next instruction
+            # (measured on the native trace: hello-O2 rep stos steps 48-100, RCX 52..1 at the instruction, RIP+3 after RCX=1)
+            after_rip = (rip + rl) & MASK64
         return ([uc.reg_read(r) & MASK64 for r in self.reg_ids], after_rip & MASK64,
                 [(ef >> b) & 1 for b in FLAG_BITS], changed, int(bool(trap)), None)
+
+
+def _rep_string_len(window):
+    """Length of a REP-prefixed STOS (F3 [REX] AA/AB) at the start of window, else 0 (oracle-side label correction)."""
+    w = bytes(window)
+    if not w or w[0] != 0xF3:
+        return 0
+    pos = 2 if len(w) > 2 and 0x40 <= w[1] <= 0x4F else 1
+    return pos + 1 if len(w) > pos and w[pos] in (0xAA, 0xAB) else 0
 
 
 # ------------------------------------------------------------------ rows
@@ -645,6 +702,13 @@ def make_rows(rng, oracle, form: Form, key, regs, mem, cc, nrows, literal_ok=Non
         # M5c: half the shift counts come from the full byte range (the count is masked by the CPU; 0 keeps the flags)
         if f.special == "shift":
             imm = rng.getrandbits(8) if m5c and rng.random() < 0.5 else rng.randrange(1, 64 if f.width == 64 else 32)
+        if f.special == "bt_imm":  # M5e: the CPU masks the bit offset to the operand width; half the offsets exceed it
+            imm = rng.getrandbits(8) if rng.random() < 0.5 else rng.randrange(f.width)
+        if f.special == "rep":  # M5e: string-op steps need small counts (last iteration, count 0) as well as large ones
+            u = rng.random()
+            st[1] = 0 if u < 0.2 else 1 if u < 0.45 else rng.randrange(2, 5) if u < 0.7 else rng.randrange(5, 1 << 12) if u < 0.85 \
+                else rng.getrandbits(64)
+            st[7] = _canon(rng)
         if f.special == "shift_cl":
             st[1] = (st[1] & ~0xFF) | (rng.getrandbits(8) if m5c and rng.random() < 0.5 else rng.randrange(1, 64 if f.width == 64 else 32))
         edge = _edge_pick(rng, f, regs, mem) if m5c else None
@@ -903,7 +967,7 @@ def identify(window: bytes):
     """Oracle-side parse of an instruction's encoding key against the catalog: (form name, key, regs, mem, cc) or None.
     Used only to choose WHICH form/key to sample fresh random-state Unicorn transitions for; never for labels."""
     w = bytes(window)
-    for name in FORM_NAMES:
+    for name in IDENT_ORDER:
         got = _parse(FORMS[name], w)
         if got is not None:
             return (name,) + got

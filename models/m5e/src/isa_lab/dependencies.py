@@ -20,7 +20,10 @@ REPO = Path(__file__).resolve().parents[1]
 WORKSPACE = Path(os.environ["ISA_WORKSPACE"]) if os.environ.get("ISA_WORKSPACE") else REPO.parent
 SOURCES = {
     "spf": WORKSPACE / "spectral-phase-format-research/src/spf",
-    "spectral_native": WORKSPACE / "spf-wt-phaselock/domains/ml/spectral-native/spectral_native",
+    # the spf-wt-phaselock worktree was folded back into the live checkout (2026-11); keep the old path when present
+    "spectral_native": next((p for p in (WORKSPACE / "spf-wt-phaselock/domains/ml/spectral-native/spectral_native",
+                                         WORKSPACE / "spectral-phase-format-research/domains/ml/spectral-native/spectral_native")
+                             if p.exists()), WORKSPACE / "spf-wt-phaselock/domains/ml/spectral-native/spectral_native"),
     "controller": WORKSPACE / "saturn/src/saturn/ar/training_checkpoint_controller.py",
 }
 
