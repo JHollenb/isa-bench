@@ -1,0 +1,14 @@
+name: glibc
+description: "R2 DEV suite (2026-11-02): static glibc programs (puts, printf, string routines, qsort, malloc/free, atoi/strtol). Distro default codegen (CET endbr64, stack protector on); DEV data for M5e glibc coverage, not held-out."
+dir: programs/glibc
+programs: [hello, printf, strops, qsort, malloc, atoi]
+variants:
+  O2: ["-O2", "-static", "-fno-pie", "-no-pie"]
+max_trace_steps: 5000000
+# Traced environment (decision 2026-11-02): a clean env plus GLIBC_TUNABLES masking the host's AVX/AVX2/AVX-512/BMI/ERMS/FSRM/SSE3+
+# hwcaps, so glibc's ifuncs pick the x86-64 baseline (SSE2) string routines. CPUID itself is not masked: the emulator
+# presents the reference host's own CPUID/XGETBV values (a supplied CPU model), so native and emulated runs take the same
+# path. This keeps the vector ISA the learned machine eventually needs to SSE2 instead of AVX-512 (EVEX, zmm, k-masks).
+env:
+  LANG: C
+  GLIBC_TUNABLES: "glibc.cpu.hwcaps=-AVX512F,-AVX512BW,-AVX512VL,-AVX512DQ,-AVX512CD,-AVX2,-AVX,-AVX_Fast_Unaligned_Load,-ERMS,-FSRM,-BMI1,-BMI2,-LZCNT,-MOVBE,-POPCNT,-SSE4_1,-SSE4_2,-SSSE3,-Fast_Unaligned_Copy,-Prefer_No_VZEROUPPER,-RTM"
