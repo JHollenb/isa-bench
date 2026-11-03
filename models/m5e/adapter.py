@@ -44,6 +44,9 @@ class Adapter(Base):
         state = {"rip": int(first[0]), "regs": [int(v) for v in first[1:17]], "flags": R.eflags_to_flags(first[17])}
         rflags_rest = int(first[17]) & ~R.STATUS_MASK
         cmp, stdout, stop = self.comparator(trace), bytearray(), None
+        # supplied CPU model (builder B, isa 1e0d97c): CPUID/XGETBV answers of the reference host, as a hypervisor serves
+        # a fixed CPUID table; the learned machine never sees these instructions
+        cpu = R.cpu_model(program_dir / "mem.bin", trace.steps)
         self.records_used = []
         i = 0
         for i in range(max_steps):
@@ -51,6 +54,16 @@ class Adapter(Base):
                 stop = {"kind": "wall_limit"}
                 break
             window = bytes(mem.byte((state["rip"] + j) & R.MASK64) for j in range(15))
+            cpu_new, cpu_why = R.cpu_step(cpu, state, window)
+            if cpu_why is not None:
+                stop = {"kind": "unsupported_cpu_model", "reason": cpu_why, "rip": hex(state["rip"])}
+                break
+            if cpu_new is not None:
+                before = ArchState(state["rip"], list(state["regs"]), dict(zip(M4_FLAGS, state["flags"])))
+                state = cpu_new
+                cmp.observe(i, ArchState(state["rip"], list(state["regs"]), dict(zip(M4_FLAGS, state["flags"]))),
+                            window=window, before=before, extra={"record": "cpu_model"})
+                continue
             ri, eff = self.dec.lookup(window)
             if eff is None:
                 stop = {"kind": "abstain", "reason": "no_record", "rip": hex(state["rip"]), "window": window.hex()}
