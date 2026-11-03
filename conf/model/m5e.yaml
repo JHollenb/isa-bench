@@ -1,0 +1,10 @@
+name: m5e
+family: m5e
+description: "M5e structured learned machine: M5d-final v3 + not-evidenced guards (byte register, SIB index none), shared effective-address unit, flag refinement and fitted stops from fresh Unicorn rows of dev stops (seed 719)."
+code: models/m5e
+artifact: artifacts/frozen/m5e
+artifact_sha256: d6694d04
+compare: {gprs: 16, flags: [CF, PF, AF, ZF, SF, OF]}
+resources: {ram_mb: 6000, cpu_threads: 2}
+train: null   # learning lease = .worktrees/isa-m5e scripts/m4.py launch-m5e (feat/m5e)
+debug: {mdb: false, symbol_table: null}
