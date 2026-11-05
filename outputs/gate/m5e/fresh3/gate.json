@@ -1,0 +1,793 @@
+{
+ "arms": {
+  "G0-m4+program": {
+   "complete": 11,
+   "exact_steps": 14937015,
+   "paths": {
+    "hybrid": 295876,
+    "m4": 14641092,
+    "os_boundary": 46
+   },
+   "programs": 12,
+   "stdout_ok": 11,
+   "trace_steps": 15200920,
+   "uops": 18776355
+  },
+  "H0-proved": {
+   "complete": 11,
+   "exact_steps": 14937015,
+   "paths": {
+    "hybrid": 14936968,
+    "os_boundary": 46
+   },
+   "programs": 12,
+   "stdout_ok": 11,
+   "trace_steps": 15200920,
+   "uops": 1281427308
+  },
+  "M4-proved-only": {
+   "complete": 4,
+   "exact_steps": 5794217,
+   "paths": {
+    "m4": 5794192,
+    "os_boundary": 17
+   },
+   "programs": 12,
+   "stdout_ok": 4,
+   "trace_steps": 15200920,
+   "uops": 391
+  },
+  "M4-unguarded": {
+   "complete": 4,
+   "exact_steps": 5794217,
+   "paths": {
+    "m4": 5794192,
+    "os_boundary": 17
+   },
+   "programs": 12,
+   "stdout_ok": 4,
+   "trace_steps": 15200920,
+   "uops": 391
+  }
+ },
+ "cert_manifest": "/Users/jakeholl/domains/.worktrees/isa-bench-m5e/runs/gate/m5e-fresh3/20261102T183608/cert-manifest.json",
+ "cert_sha256": "a873e28384179c1d9e1fe6a6cd1246ebe6562b40e3f044ae09ccabd7f1790600",
+ "de_ref": "daf25b4",
+ "label": "m5e",
+ "machine": "/mnt/hdd8tb/uv-archive-stage/isa-m5e-final/machine_full.pkl",
+ "mutations": 0,
+ "programs": {
+  "crc32-O0": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 491104,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 491100,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 491104,
+    "trace_steps": 491104
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 491104,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 491100,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 491104,
+    "trace_steps": 491104
+   },
+   "M4-proved-only": {
+    "all_steps_exact": true,
+    "exact_steps": 491104,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 491100,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 491104,
+    "trace_steps": 491104
+   },
+   "M4-unguarded": {
+    "all_steps_exact": true,
+    "exact_steps": 491104,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 491100,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 491104,
+    "trace_steps": 491104
+   }
+  },
+  "crc32-O2": {
+   "G0-m4+program": {
+    "all_steps_exact": false,
+    "exact_steps": 15,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 6,
+     "m4": 8
+    },
+    "status": "stop: no proved path at 0x4010da (paddd)",
+    "stdout_ok": false,
+    "steps_run": 14,
+    "trace_steps": 263920
+   },
+   "H0-proved": {
+    "all_steps_exact": false,
+    "exact_steps": 15,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 14
+    },
+    "status": "stop: no proved path at 0x4010da (paddd)",
+    "stdout_ok": false,
+    "steps_run": 14,
+    "trace_steps": 263920
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 5,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 4
+    },
+    "status": "stop: no proved path at 0x4010a1 (movdqa)",
+    "stdout_ok": false,
+    "steps_run": 4,
+    "trace_steps": 263920
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 5,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 4
+    },
+    "status": "stop: no proved path at 0x4010a1 (movdqa)",
+    "stdout_ok": false,
+    "steps_run": 4,
+    "trace_steps": 263920
+   }
+  },
+  "dijkstra-O0": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 2157144,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 2157140,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 2157144,
+    "trace_steps": 2157144
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 2157144,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 2157140,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 2157144,
+    "trace_steps": 2157144
+   },
+   "M4-proved-only": {
+    "all_steps_exact": true,
+    "exact_steps": 2157144,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 2157140,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 2157144,
+    "trace_steps": 2157144
+   },
+   "M4-unguarded": {
+    "all_steps_exact": true,
+    "exact_steps": 2157144,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 2157140,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 2157144,
+    "trace_steps": 2157144
+   }
+  },
+  "dijkstra-O2": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 970942,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 970938,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 970942,
+    "trace_steps": 970942
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 970942,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 970938,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 970942,
+    "trace_steps": 970942
+   },
+   "M4-proved-only": {
+    "all_steps_exact": true,
+    "exact_steps": 970942,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 970938,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 970942,
+    "trace_steps": 970942
+   },
+   "M4-unguarded": {
+    "all_steps_exact": true,
+    "exact_steps": 970942,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 970938,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 970942,
+    "trace_steps": 970942
+   }
+  },
+  "lcs-O0": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 3467064,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 91817,
+     "m4": 3375244,
+     "os_boundary": 3
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 3467064,
+    "trace_steps": 3467064
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 3467064,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 3467061,
+     "os_boundary": 3
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 3467064,
+    "trace_steps": 3467064
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 10316,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 10315
+    },
+    "status": "stop: no proved path at 0x401353 (cmovge)",
+    "stdout_ok": false,
+    "steps_run": 10315,
+    "trace_steps": 3467064
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 10316,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 10315
+    },
+    "status": "stop: no proved path at 0x401353 (cmovge)",
+    "stdout_ok": false,
+    "steps_run": 10315,
+    "trace_steps": 3467064
+   }
+  },
+  "lcs-O2": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 942036,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 22750,
+     "m4": 919283,
+     "os_boundary": 3
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 942036,
+    "trace_steps": 942036
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 942036,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 942033,
+     "os_boundary": 3
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 942036,
+    "trace_steps": 942036
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 2504,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 2503
+    },
+    "status": "stop: no proved path at 0x401118 (test)",
+    "stdout_ok": false,
+    "steps_run": 2503,
+    "trace_steps": 942036
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 2504,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 2503
+    },
+    "status": "stop: no proved path at 0x401118 (test)",
+    "stdout_ok": false,
+    "steps_run": 2503,
+    "trace_steps": 942036
+   }
+  },
+  "modpow-O0": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 1464971,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 1464966,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1464971,
+    "trace_steps": 1464971
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 1464971,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 1464966,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1464971,
+    "trace_steps": 1464971
+   },
+   "M4-proved-only": {
+    "all_steps_exact": true,
+    "exact_steps": 1464971,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 1464966,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1464971,
+    "trace_steps": 1464971
+   },
+   "M4-unguarded": {
+    "all_steps_exact": true,
+    "exact_steps": 1464971,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 1464966,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1464971,
+    "trace_steps": 1464971
+   }
+  },
+  "modpow-O2": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 1048732,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 126709,
+     "m4": 922018,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1048732,
+    "trace_steps": 1048732
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 1048732,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 1048727,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1048732,
+    "trace_steps": 1048732
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 52,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 51
+    },
+    "status": "stop: no proved path at 0x401150 (cmovae)",
+    "stdout_ok": false,
+    "steps_run": 51,
+    "trace_steps": 1048732
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 52,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 51
+    },
+    "status": "stop: no proved path at 0x401150 (cmovae)",
+    "stdout_ok": false,
+    "steps_run": 51,
+    "trace_steps": 1048732
+   }
+  },
+  "partition-O0": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 1949236,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 4000,
+     "m4": 1945231,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1949236,
+    "trace_steps": 1949236
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 1949236,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 1949231,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1949236,
+    "trace_steps": 1949236
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 35,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 34
+    },
+    "status": "stop: no proved path at 0x401262 (mov)",
+    "stdout_ok": false,
+    "steps_run": 34,
+    "trace_steps": 1949236
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 35,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 34
+    },
+    "status": "stop: no proved path at 0x401262 (mov)",
+    "stdout_ok": false,
+    "steps_run": 34,
+    "trace_steps": 1949236
+   }
+  },
+  "partition-O2": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 836105,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 42544,
+     "m4": 793556,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 836105,
+    "trace_steps": 836105
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 836105,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 836100,
+     "os_boundary": 5
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 836105,
+    "trace_steps": 836105
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 13,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 12
+    },
+    "status": "stop: no proved path at 0x4010be (mov)",
+    "stdout_ok": false,
+    "steps_run": 12,
+    "trace_steps": 836105
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 13,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 12
+    },
+    "status": "stop: no proved path at 0x4010be (mov)",
+    "stdout_ok": false,
+    "steps_run": 12,
+    "trace_steps": 836105
+   }
+  },
+  "varint-O0": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 1046875,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 33,
+     "m4": 1046838,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1046875,
+    "trace_steps": 1046875
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 1046875,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 1046871,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 1046875,
+    "trace_steps": 1046875
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 472522,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 472521
+    },
+    "status": "stop: no proved path at 0x40137c (shl)",
+    "stdout_ok": false,
+    "steps_run": 472521,
+    "trace_steps": 1046875
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 472522,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 472521
+    },
+    "status": "stop: no proved path at 0x40137c (shl)",
+    "stdout_ok": false,
+    "steps_run": 472521,
+    "trace_steps": 1046875
+   }
+  },
+  "varint-O2": {
+   "G0-m4+program": {
+    "all_steps_exact": true,
+    "exact_steps": 562791,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 8017,
+     "m4": 554770,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 562791,
+    "trace_steps": 562791
+   },
+   "H0-proved": {
+    "all_steps_exact": true,
+    "exact_steps": 562791,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "hybrid": 562787,
+     "os_boundary": 4
+    },
+    "status": "exit",
+    "stdout_ok": true,
+    "steps_run": 562791,
+    "trace_steps": 562791
+   },
+   "M4-proved-only": {
+    "all_steps_exact": false,
+    "exact_steps": 224609,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 224608
+    },
+    "status": "stop: no proved path at 0x4011b2 (test)",
+    "stdout_ok": false,
+    "steps_run": 224608,
+    "trace_steps": 562791
+   },
+   "M4-unguarded": {
+    "all_steps_exact": false,
+    "exact_steps": 224609,
+    "first_divergence": null,
+    "mismatch_steps": 0,
+    "paths": {
+     "m4": 224608
+    },
+    "status": "stop: no proved path at 0x4011b2 (test)",
+    "stdout_ok": false,
+    "steps_run": 224608,
+    "trace_steps": 562791
+   }
+  }
+ },
+ "proofs": {
+  "dynamic": {
+   "no_record": 291450,
+   "os_boundary": 50,
+   "proved": 14909420
+  },
+  "programs": 12,
+  "proved_answers": {
+   "dynamic": {
+    "sat": 14909177,
+    "unknown": 92,
+    "unsat": 151
+   },
+   "static": {
+    "sat": 3059,
+    "unknown": 7,
+    "unsat": 1
+   }
+  },
+  "static": {
+   "no_record": 32,
+   "os_boundary": 37,
+   "proved": 3067
+  }
+ },
+ "proofs_total": {
+  "dynamic": {
+   "no_record": 307453,
+   "os_boundary": 126,
+   "proved": 23379065
+  },
+  "static": {
+   "no_record": 39,
+   "os_boundary": 97,
+   "proved": 7513
+  }
+ },
+ "prove_job": "job-066492a2b656",
+ "refuted": [],
+ "run_job": "job-6016a61ebc49",
+ "run_workers": 8,
+ "split": "heldout",
+ "suite": "fresh3",
+ "timeout_ms": 60000,
+ "view": "/mnt/hdd8tb/uv-archive-stage/isa-bench/gate-view/fresh3-402f9a2b8c940aac",
+ "workers": 10
+}

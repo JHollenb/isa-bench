@@ -61,7 +61,7 @@ def hybrid(gcfg: dict, *args: str) -> dict:
     root = (REPO / gcfg["hybrid_root"]).resolve()
     launch.tunnel_env()  # the dotenv points MRUN_URL at the LAN; the laptop's Python only reaches it through the tunnel
     env = {**os.environ, "PYTHONPATH": "."}
-    cmd = [str((REPO / "../common/bin/common").resolve()), "exec", "python", "scripts/hybrid_launch.py", *args]
+    cmd = [str((launch.WORKSPACE / "common/bin/common").resolve()), "exec", "python", "scripts/hybrid_launch.py", *args]
     print("+ (isa-hybrid) hybrid_launch.py " + " ".join(args), flush=True)
     proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True, timeout=3600)
     if proc.returncode:
