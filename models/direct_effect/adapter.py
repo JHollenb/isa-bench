@@ -106,3 +106,22 @@ class Adapter(Base):
             return None
         return {"kind": "direct_effect", "arch": self.cfg["arch"], "artifact": self.cfg["artifact"],
                 "artifact_sha256": self.metadata.get("artifact_sha256"), **div}
+
+    def debug_forward(self, bundle):
+        """The divergent step's forward, as stage=debug records it with MDB."""
+        from isa_bench.adapters import sha256_file
+
+        torch = self.torch
+        before = bundle["before"]
+        regs = [int(before["regs"][n], 16) for n in ("RAX", "RCX", "RDX", "RBX", "RSP", "RBP", "RSI", "RDI")]
+        flags = [int(before["flags"][n]) for n in FLAGS]
+        window = bytes.fromhex(bundle["window"]).ljust(15, b"\0")[:15]
+        win = torch.tensor([[(v >> i) & 1 for v in window for i in range(8)]], dtype=torch.float32)
+        reg = torch.tensor([[[(v >> i) & 1 for i in range(64)] for v in regs]], dtype=torch.float32)
+        flg = torch.tensor([flags], dtype=torch.float32)
+        return {"module": self.model, "args": (win, reg, flg), "model_identity": sha256_file(self.artifact / "model.pt"),
+                "kind": "isa-bench-first-divergence",
+                "input_identity": {"window_hex": window.hex(), "register_words": regs, "flags_CF_ZF_SF_OF": flags}}
+
+    def debug_explain(self, bundle, output=None):
+        return None

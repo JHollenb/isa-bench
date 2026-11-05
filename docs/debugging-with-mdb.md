@@ -8,9 +8,11 @@ Here is what that looks like on real failures. Every result in this list was pro
 - **Two numbers out of 256.** Fork the Mamba's forward at the decoder's exit and paste just 2 of the 256 decoder coordinates from a `sub` encoding. The prediction flips from `RSP-16` to `RSP+16`. The same 2 coordinates do *not* turn a real `sub` into `add`, so they are a tipping point, not an opcode switch. MDB shows you both.
 - **A symbol table that predicts compiled C.** The R3 Mamba's recovered symbol table describes `add $1,%reg` as a 3-bit raw-byte route plus a bit-serial XOR/AND carry. It predicts the model's output exactly on 5/5 `add $1` instructions taken from real isa-bench programs with their native register state. The model also reproduces all 3 of the table's recorded exceptions bit for bit. One of its flag rules fails on a fresh input where the model is actually right.
 - **Finding the bit that's wrong.** One recorded failure (RDI bit 32 set, logit +0.07) is fixed by scaling a single site, `mixers.2.out_proj`, by 0.9. The fix reproduces on 2 of 3 failing inputs and breaks none of 5 correct ones.
+- **Predicting the wrong answer before the model runs.** MDB's independent FP64 equations for the whole forward forecast `RSP − 16, CF = 1` for `and $-16,%rsp`. That is the model's wrong answer, not x86's. The forecast is sealed before the model is allowed to run, and the model then matches every head decision on all 10 inputs tried (real `and` and `add $1` steps plus the table's exceptions). The worst logit error was 4e-5. A forecast that tries to call the model before the seal is refused.
+- **Selectors, too.** The six learned selectors pick an instruction family instead of computing state. `just debug` now records the neural ones' forward at the refusing instruction. On `xor %rbp,%rbp`, the first instruction of every `dev` program, all four pick the wrong family; the right one is ranked 6th to 12th. Forking the readout shows the wrong pick lives in the byte-scan half, not the numeric features. The structural selectors get one instruction further and stop at `and $-16,%rsp`. That is a gap in the PAN consumer, not in the selector.
 - **Save today, resume next week.** A session with an edited branch saves to a content-addressed frontier (15.5 MB). It resumes in a fresh process at the same cursor, with the same outputs and the full work history, without re-running the prefix.
 
-**Labels.** *Measured here* means run while writing this guide on 2026-10-30: laptop CPU, FP32, one forward at a time, outputs pasted and trimmed. *Reported* means taken from the cited doc or post. Nothing below is labelled measured unless it was run.
+**Labels.** *Measured here* means run while writing this guide on 2026-10-30 or 2026-10-31: laptop CPU, FP32, one forward at a time, outputs pasted and trimmed. *Reported* means taken from the cited doc or post. Nothing below is labelled measured unless it was run.
 
 ---
 
@@ -25,9 +27,10 @@ Here is what that looks like on real failures. Every result in this list was pro
 6. [Use case: run the model as a program, instruction by instruction](#6-use-case-run-the-model-as-a-program-instruction-by-instruction)
 7. [Use case: compare checkpoints](#7-use-case-compare-checkpoints)
 8. [Use case: save a frontier, resume later, audit the journal](#8-use-case-save-a-frontier-resume-later-audit-the-journal)
-9. [Where MDB goes further (reported)](#9-where-mdb-goes-further-reported)
-10. [Cheat sheet](#10-cheat-sheet)
-11. [Limits, gotchas, next steps](#11-limits-gotchas-next-steps)
+9. [Use case: seal a forecast of the model's answer, then let it run](#9-use-case-seal-a-forecast-of-the-models-answer-then-let-it-run)
+10. [Use case: why did a selector refuse?](#10-use-case-why-did-a-selector-refuse)
+11. [Cheat sheet](#11-cheat-sheet)
+12. [Limits, gotchas, next steps](#12-limits-gotchas-next-steps)
 - [Appendix: the scripts behind the measured examples](#appendix-the-scripts-behind-the-measured-examples)
 
 ---
@@ -37,10 +40,11 @@ Here is what that looks like on real failures. Every result in this list was pro
 | model | what it is | MDB today | what you get |
 |---|---|---|---|
 | `de_mamba` | R3 direct-effect Mamba (3 scan mixers over the 64 bit positions), checkpoint `9399e921…` | **Full.** `just debug` writes a recipe (571 ATen ops); console, Python API, instruction driver. | Recovered **symbol table** (`../isa/outputs/moonshot-r3-mamba/`). The debug report links it automatically when the hash matches. |
-| `de_nn` | R3 direct-effect MLP-mixer, checkpoint `30caebe4…` | **Full** (286 ops, 11 MLP sites). | No symbol table. The same checkpoint carries the reported NN value-edit results (§9). |
+| `de_nn` | R3 direct-effect MLP-mixer, checkpoint `30caebe4…` | **Full** (286 ops, 11 MLP sites). | No symbol table. The same checkpoint carries the reported NN value-edit results (§9, "Elsewhere in MDB"). |
 | `de_hydra` | R3 direct-effect bidirectional scans, checkpoint `0dc718f4…` | **Full** (655 ops). | No symbol table. |
 | `m5d` | M5d-final v3: a byte-trie of induced records, not a neural forward | **No.** There is no tensor program to replay. | `just debug` report: the abstain point and the native disassembly. |
-| `sel_*` | Six learned selectors over the frozen PAN runtime | **Not wired.** They are torch models, but `stage=debug` records only direct-effect forwards. | `just debug` report: the refusal and the selector-vs-typed-adapter disagreement. |
+| `sel_nn`, `sel_mamba`, `sel_hydra`, `sel_pan_isa` | Neural selectors over the frozen PAN runtime: pick 1 of 33 families; the consumer computes the effect | **Full** for the runtime head's forward at the refusing instruction (8 / 106 / 134 / 11 ops). | Report: top-5 families vs the family the typed adapter executes, and its rank (§10). |
+| `sel_fieldlm`, `sel_spf` | Structural selectors: route tables (FieldLM records, SPF phase planes) | **No.** There is no tensor forward. | Report: the route key looked up, and the learned routes for that opcode (§10). |
 | `unicorn` | Emulator control | n/a | Always 100% trace-exact; if it isn't, the harness is wrong. |
 
 The three direct-effect checkpoints share one ABI: a 15-byte window, 8 GPRs as 8×64 bits and CF/ZF/SF/OF in; 11 heads out. So every recipe, script and decoder in this guide works on all three. Model-specific site names come from the recipe's own catalog.
@@ -440,7 +444,7 @@ de_hydra  outputs: RSP 0x7fffffffe370 CF 1 len 4 dest RSP imm 0xfffffffffffffff0
 
 Identical decoding, opposite operation choice. Together with the `/r` sweep in §3, this is a compact fingerprint of how each checkpoint generalizes. It costs 24 forwards, which you can't get from aggregate eval coverage (all three are at 0.0% step coverage on `dev`).
 
-**Not covered by MDB.** For `m5d` and the selectors, `just debug` still gives you the stop and the native context, but no recipe (*measured here*):
+**Not covered by MDB.** For `m5d`, `just debug` still gives you the stop and the native context, but no recipe (*measured here*):
 
 ```text
 $ just debug m5d dev fib-O2
@@ -449,7 +453,7 @@ $ just debug m5d dev fib-O2
 =>   401143:	mov    %rcx,0x20(%rsp)
 ```
 
-M5d runs 86 steps exactly and then abstains on a store form its trie has no record for. By design it declines rather than guessing (reported: 0 wrong steps on fresh unseen gcc programs; `obsidian/blog/2026-10-30-170130-isa-survey-every-learned-x86-system-june-to-october.md`). The selector cells (for example `sel_mamba dev fib-O2`) stop at step 0 with `{"kind": "unsupported_instruction", "detail": "learned selector MOV_REG_RM; typed adapter XOR_RM_REG"}`. The selector's choice disagrees with the typed adapter on `xor %rbp,%rbp`. Recording a selector forward with MDB would work mechanically (it is a torch model), but `stage=debug` doesn't do it yet.
+M5d runs 86 steps exactly and then abstains on a store form its trie has no record for. By design it declines rather than guessing (reported: 0 wrong steps on fresh unseen gcc programs; `obsidian/blog/2026-10-30-170130-isa-survey-every-learned-x86-system-june-to-october.md`). The selectors have their own section, §10.
 
 ## 8. Use case: save a frontier, resume later, audit the journal
 
@@ -478,26 +482,195 @@ $ mdb discovery inspect debug/scratch/frontier-store --cut edfbec91…
 
 Every recorded command is a content-addressed object chained to the previous one (`journal/objects/<sha256>.json`, `head.json`), so a session is an auditable artifact you can attach to a result. Resume requires the same CPU/Torch/platform contract and `safetensors`. A *new* forward after resume needs an explicitly supplied model factory; none is deserialized (`DISCOVERY-DEBUGGER.md`).
 
-## 9. Where MDB goes further (reported)
+## 9. Use case: seal a forecast of the model's answer, then let it run
 
-None of this was run for this guide; each item says where it comes from. Everything except the NN edits is on the same `de_mamba` checkpoint.
+§5 asked a 15-line symbol table what the model would do. A sealed forecast asks a harder question: can an independent account of the *whole* forward compute every output of the model, wrong answers included, before the model is allowed to run? MDB enforces the order for you.
 
-- **Sealed computation forecasts.** Independent NumPy FP64 equations for the model's suffix are hashed and sealed before the native run is released, then compared. Results:
-  - 32/32 fresh and 16/16 anchor decisions (`job-7a4c750a929f`, `saturn-pub/packages/mdb/docs/EXPLICIT-COMPUTATION-FORECASTS.md`);
-  - 18/18 raw-input steps over three instructions (`job-62804158d4e4`, `RAW-INPUT-SEQUENCE-FORECASTS.md`);
-  - across two later campaigns, 42/42 executed rows matched every head's frozen decision (`obsidian/blog/2026-10-30-200139-predicting-how-an-isa-model-computes.md`).
+**The parts.**
 
-  The forecasts also predict *wrong* answers. `add rax,rbx` encoded `4801d8` followed by XOR bytes gives RAX = 13,120,839 instead of 1030, and the forecast had sealed that number first (`obsidian/blog/2026-10-30-200139-predicting-how-an-isa-model-computes.md`, `INPUT-GENERALIZATION.md`). CLI: `mdb ports trace.json [--select …]`, `mdb forecast verify|show DIR`, `mdb equations compare|find` (`COMPUTATION-FORECAST-WORKFLOW.md`). This is the natural next step for §5: seal the table's prediction for a new input, then release the native run. Forecasts give no speed-up; they recompute the model in FP64.
+- **The equations.** `saturn-pub/packages/mdb/qualification/raw_isa_equations.py` (with `explicit_suffix_equations.py`) is a NumPy FP64 re-derivation of the R3 Mamba forward, written for checkpoint `9399e921…`. It covers the instruction decoder, the soft register reads, the two immediate-attention reads, the aligned slots, the input projection, all three mixer/MLP pairs and all eleven heads. It starts from the raw window, register and flag bits, uses a sequential scan where Torch uses a parallel one, and imports no Torch and no model code. It is complete but uninterpreted: a match tests that MDB's account of the forward's arithmetic is exact, not that anyone understands *why* the model computes `and` as `add`. That second question is what §3–§5 are for.
+- **The transaction.** `mdb.forecast_transaction.ForecastTransaction` runs four phases in order: publish the inputs (`frontier`), compute the forecasts (`predict`), hash and seal them (`seal`), and only then release the model (`execute`). Module guards on the bound model refuse any call before the seal. The forecast arrays, the seal, the observations and a hash-chained event log are written to disk, where `mdb forecast verify` re-checks them without loading a model.
+- **The comparison.** `mdb.equation_comparison.compare_equations` compares head by head under declared decision rules (sign for bit heads, argmax for `dest`/`src`/`width`/`length`). It reports signed residuals, observed minus forecast. `EquationCatalog` keeps one immutable, searchable record per case.
+
+**The run** (*measured here*, 2026-10-31, laptop CPU; `debug/scratch/forecast.py`, appendix). There are ten inputs:
+
+- `and $-16,%rsp` at step 1 of four `dev` programs, each with its own trailing window bytes and the native before-state from `trace.npz`;
+- two compiled `add $1` instructions from §5;
+- the symbol table's three sealed exceptions (§5);
+- the fresh `RDI = 2^63−1` input, where §5 found the table's OF rule wrong.
+
+The script prints each sealed forecast before the model has run once:
+
+```text
+$ PYTHONPATH=src:../saturn-pub/packages/mdb/src ../common/bin/common exec python debug/scratch/forecast.py debug/scratch/forecast-run
+{"phase": "sealed", "seal_sha256": "0a5eef028747d8aa151f03adbb5a4277549a1ff417c12eda6ab0bc49971081ad", "model_calls_so_far": 0, "native_calls": 0, "wall_s": 2.23}
+{"sealed": "and_rsp.fib-O2", "regs": {"RSP": "0x7fffffffe350"}, "flags": {"CF": 1, "ZF": 0, "SF": 0, "OF": 0}, "length": 4}
+{"sealed": "and_rsp.fib-O0", "regs": {"RSP": "0x7fffffffe350"}, "flags": {"CF": 1, "ZF": 0, "SF": 0, "OF": 0}, "length": 4}
+...
+{"sealed": "add1.fib-O2.40121a", "regs": {"RDI": "0x2"}, "flags": {"CF": 0, "ZF": 0, "SF": 0, "OF": 0}, "length": 4}
+{"sealed": "panel.held-081", "regs": {"RDI": "0x6e1f6959ffff8000"}, "flags": {"CF": 0, "ZF": 0, "SF": 0, "OF": 0}, "length": 4}
+{"sealed": "fresh.rdi_2p63m1", "regs": {"RDI": "0x8000000000000000"}, "flags": {"CF": 0, "ZF": 0, "SF": 1, "OF": 1}, "length": 4}
+{"phase": "released", "model_calls": 10, "native_calls": 10, "event_head": "4a6df2cf…", "wall_s": 4.03}
+```
+
+The forecast says the model will compute `RSP − 16` with CF = 1 for `and $-16,%rsp`. That is the wrong answer §3 found by running the model, now predicted with the model never called. After release, each case is compared against the model and against native x86 (the next state in the reference trace). The panel and fresh inputs have no native trace. Here is the condensed per-case output:
+
+| case | input | forecast | model | native x86 | head decisions differing (of 11 fields) | max \|logit error\| | model's smallest \|logit\| |
+|---|---|---|---|---|---|---|---|
+| `fib-O2@0x401003` step 1, `and $-16,%rsp` | RSP `…e360`, ZF 1 | RSP `…e350`, CF 1 | RSP `…e350`, CF 1 | RSP `…e360`, CF 0 | 0 | 1.8e-5 | 0.204 |
+| `fib-O0@0x401003` step 1 | same | same | same | same | 0 | 1.8e-5 | 0.114 |
+| `sort-O2@0x401003` step 1 | same | same | same | same | 0 | 1.7e-5 | 0.041 |
+| `strings-O0@0x401003` step 1 | same | same | same | same | 0 | 1.9e-5 | **0.007** |
+| `fib-O2@0x40121a` step 236, `add $1,%rdi` | RDI `0x1` | `0x2` | `0x2` | `0x2` | 0 | 2.1e-5 | 7.46 |
+| `checksum-O2@0x401183` step 309023 | RDI `0x403000` | `0x403001` | `0x403001` | `0x403001` | 0 | 2.8e-5 | 0.077 |
+| panel held-081 | RDI `…58ffff7fff` | `…59ffff8000` | `…59ffff8000` | (correct: `…58ffff8000`) | 0 | 4.0e-5 | 0.072 |
+| panel held-085 | RDI `…5affff7fff` | `…5bffff8000` | `…5bffff8000` | (correct: `…5affff8000`) | 0 | 3.2e-5 | 0.072 |
+| panel held-087 | RDI `…5bffff7fff` | `…5fffff8000` | `…5fffff8000` | (correct: `…5bffff8000`) | 0 | 3.2e-5 | 0.160 |
+| fresh RDI = 2^63−1 | `0x7fff…ffff` | `0x8000…0000`, SF 1, OF 1 | same | (correct: same, OF 1) | 0 | 3.2e-5 | 0.160 |
+
+"Head decisions differing" counts every head: 512 register bits, 4 flags, the 64-bit immediate, the store address and value, length, `dest`, `src`, `width`, store and syscall. The two right-hand columns are the largest FP64-vs-FP32 logit difference anywhere, and the model's smallest |logit| on any sign-decided head. The script took 61 s wall, almost all of it environment start-up and model load. Sealing came 2.2 s after `t0` and release at 4.0 s.
+
+**Audit it from the command line** (*measured here*; each call took 1–8 s with no model loaded):
+
+```text
+$ mdb forecast verify debug/scratch/forecast-run/transaction \
+      --expected-seal 0a5eef028747d8aa151f03adbb5a4277549a1ff417c12eda6ab0bc49971081ad
+{"event_head": "c03ecb7a…", "events": 7, "forecasts": ["equations"], "frontiers": ["cases"],
+ "identity_scope": "externally-pinned", "phase": "closed", "verified": true, ...}
+
+$ mdb equations compare forecast-run/and_rsp.predicted.json forecast-run/and_rsp.observed.json --rules forecast-run/rules.json
+{"decision_fields": 11, "decision_mismatches": 0, "max_abs": 1.8093583737055496e-05,
+ "residual_direction": "observed-minus-predicted", "fields": {
+   "dest": {"decisions": {"rule": "argmax", "predicted": [4], "observed": [4], "different": 0}, ...},   # 4 = RSP
+   "flags": {"decisions": {"predicted": [[1,0,0,0]], "observed": [[1,0,0,0]], "different": 0}, ...},   # CF wrongly set
+   "length": {"decisions": {"predicted": [3], "observed": [3]}, ...},                                   # index 3 = 4 bytes
+   "regs": {"decisions": {"decisions": 512, "different": 0}, "residual": {"max_abs": 1.81e-05}}, ...}}
+
+$ mdb equations find --catalog forecast-run/equations --alias "isa-bench and_rsp.fib-O2"
+[{"law_id": "r3.full-raw-state-transition", "route_id": "native", "alias": "isa-bench and_rsp.fib-O2",
+  "evidence": {"forecast_seal": "0a5eef02…"}, "readers": ["regs", "flags", "length"],
+  "tested_context": {"case": "and_rsp.fib-O2", "checkpoint": "9399e921…", "window_hex": "4883e4f0e8a403000089c7b83c0000"},
+  "fingerprint": "7f5bd6b7…", "report": {...}}]
+
+$ mdb ports forecast-run/ports/trace.json --select 'module:mixers.2.out_proj:return' --first-consumers
+[{"value_id": "v000600", "producer_pc": 497, "port_pc": 498,
+  "first_consumer": {"module_path": "mixers.2", "operator": "aten.add.Tensor", "pc": 498}, "already_consumed": false, ...}]
+```
+
+(Paths shortened from `debug/scratch/forecast-run/…`; the JSON is trimmed. `verify` prints a later event head than the run did because closing the transaction appends a `closed` event.) `mdb ports` needs a recording made with `record_forward(..., capture_ports=True)`. `just debug` records without it by default, because port capture renumbers every `vNNNNNN` and would break the ids quoted in §3–§5. Pass `debug.capture_ports=true` to get a port-ready recipe; the script records its own. That port, the final mixer's write, is the site of the §5 `×0.9` repair. Its value is SSA `v000600`, produced at PC 497 and consumed by the residual add at PC 498. The port-ready `just debug de_mamba dev fib-O2 debug.capture_ports=true` recipe puts the same write at `v000591`, PC 488 → 489 (*measured here*), because ids and PCs belong to one recording. To act on that write in a live session, use the id from your own recording, not an inferred affine name.
+
+**A forecast that peeks is refused** (*measured here*, `forecast.py guard`). Its predict callback calls the model directly:
+
+```text
+{"error": "ForecastTransactionError: native module entry forbidden"}
+{"phase": "closed", "seal_sha256": null, "work": {"predictions": 1, "native_calls": 0, "denied_attempts": 1, ...},
+ "violations": [{"kind": "native module entry forbidden", "module": "<root>", "phase": "predict"}]}
+```
+
+What this shows:
+
+1. **The forecast predicts the bug, not the spec.** On all four `and $-16,%rsp` inputs, the sealed forecast gave the model's wrong state (RSP − 16, CF = 1), not x86's (RSP unchanged, CF = 0). It matched every one of the model's head decisions, and it did so before the model ran. The same holds for the table's three exceptions: the forecast sealed bits 32, 32 and 34 wrong exactly as the model computes them. For these inputs, MDB's equations describe the checkpoint, not what the checkpoint should have learned.
+2. **It is right when the model is right.** Both compiled `add $1` instructions (forecast = model = native) and the 2^63−1 case match. That includes OF = 1, which the symbol table's flag rule got wrong in §5. The full forward has no such blind spot, because it doesn't summarise.
+3. **No forecast–model disagreement was found.** That is not because the decisions were easy. `strings-O0`'s `and` forward has a head only 0.007 from flipping, and the worst FP64-vs-FP32 error anywhere was 4.0e-5, about 175× smaller. A disagreement needs an input whose margin falls inside that error. To look for one, sweep many windows on Beast and rank them by the model's smallest |logit|. The guide did not run that sweep.
+4. **Custody, not just numbers.** The forecast's seal is pinned, checkable offline, and tied to the catalog record. The equations declare the source hashes they were written against. isa-bench vendors `isa_lab/ssm.py` with the same hash (`319f9429…`). Its `direct_effect/model.py` hashes `0cecd869…`, which differs from the equations' declared `20231797…`. The forecast imports neither file. The 10/10 match is evidence that the forward used by this checkpoint is unchanged; it is not proof.
+
+**Where this came from (reported).** The same equations and transaction have been run as larger campaigns on Beast:
+
+- 32/32 fresh and 16/16 anchor decisions for suffix forecasts (`job-7a4c750a929f`, `saturn-pub/packages/mdb/docs/EXPLICIT-COMPUTATION-FORECASTS.md`);
+- 18/18 raw-input steps over three successive instructions, with each forecast's predicted state feeding the next instruction's forecast and no native prefix (`job-62804158d4e4`, `RAW-INPUT-SEQUENCE-FORECASTS.md`);
+- 42/42 executed rows matching every head across two later campaigns, including `add rax,rbx` (`4801d8` followed by XOR bytes), for which the forecast sealed RAX = 13,120,839 instead of 1030 (`obsidian/blog/2026-10-30-200139-predicting-how-an-isa-model-computes.md`, `INPUT-GENERALIZATION.md`).
+
+The API reference is `COMPUTATION-FORECAST-WORKFLOW.md`. Forecasts give no speed-up: they recompute the model in FP64.
+
+### Elsewhere in MDB (reported)
+
+None of this was run for this guide; each item says where it comes from.
+
 - **Value edits on the R3 NN.** A recipient-only edit installs a register value as an arithmetic operand. It produced the intended state in 24/24 new contexts, with 15/16 complete register states correct; one edit clears an unrelated bit (`obsidian/blog/2026-10-29-115335-what-our-neural-symbol-table-can-now-do.md`). ISA *weight* patches ("neural recompilation") live in `saturn/experiments/2026-10-29-neural-recompilation/`, not in MDB.
 - **Batched screening and remote control.** `mdb.discovery_batch.FrozenNativeBatch` screens up to four independent full forwards per native call, with per-row output Acts. `mdb discovery attach JOB_ID` drives a resident worker inside an mrun lease over the authenticated debugger transport (`DISCOVERY-DEBUGGER.md`). These are the routes for the sweeps this guide deferred: the `/r` × checkpoint × window grid, decoder-coordinate sweeps, and scale × input grids.
 
-## 10. Cheat sheet
+## 10. Use case: why did a selector refuse?
+
+The six selectors (§0) don't compute machine state. Each one picks one of 33 instruction families, and the frozen PAN consumer executes that family. The runtime only takes the step if two things hold. The pick's probability must be at least 0.5. It must also equal the family the consumer's own typed adapter would run. Otherwise the runtime refuses. So for a selector the question is never "which bit is wrong". It is: what did it pick, and how far away was the right family?
+
+**What `just debug` gives you.** The selector adapter records its last call in the cell's `debug_bundle`: the instruction bytes, plus the 15 raw-byte tokens and 42 numeric features the selector was fed. `just debug` replays that one call locally:
+
+- **Neural selectors** (`sel_nn`, `sel_mamba`, `sel_hydra`, `sel_pan_isa`): you get an MDB root recipe of the runtime head's forward (8, 106, 134 and 11 ATen ops respectively). You also get the top-5 families and the typed family's rank.
+- **Structural selectors** (`sel_fieldlm`, `sel_spf`): these are route tables with no forward. The report shows the route key that was looked up and the learned routes for the same opcode.
+
+Bundles only exist in cells evaluated with this adapter. This guide's cells come from `job-88365acf0ff3`: all six selectors × `c_apps`/`dev`/`heldout_m4`, 156 cells, with status counts identical to the earlier evals.
+
+```text
+$ just debug sel_mamba c_apps tiny_hello-Os                       # 81 s wall, mostly environment start-up
+{"debug_dir": "debug/sel_mamba/c_apps/tiny_hello-Os", "status": "refused", "exact_prefix_steps": 0,
+ "mdb": {"root_recipe": "debug/sel_mamba/c_apps/tiny_hello-Os/root-recipe", "checkpoint_sha256": "f29a132a…", "operations": 106},
+ "explain": {"top": [["JMP_REL8", 0.998052], ["CALL_REL32", 0.001832], ["PUSH_RBP", 0.000108], ["MOV_IMM_REG", 4e-06], …],
+             "typed": {"label": "MOV_IMM_REG", "rank": 4, "prob": 4e-06}}}
+
+$ sed -n '/## Selector/,/## Native/p' debug/sel_mamba/c_apps/tiny_hello-Os/report.md
+## Selector
+Step 0 at 0x401000, fetch window `b801000000be00204000ba0e000000`.
+
+The typed adapter executes **MOV_IMM_REG**; the selector has to name the same family.
+
+| rank | family | probability |
+|---:|---|---:|
+| 1 | JMP_REL8 | 0.998 |
+| 2 | CALL_REL32 | 0.00183 |
+| 3 | PUSH_RBP | 0.000108 |
+| 4 | MOV_IMM_REG | 4.04e-06 |
+| 5 | XOR_RM_REG | 3e-06 |
+```
+
+The recipe opens in the same console as the direct-effect ones: `just mdb debug/sel_mamba/c_apps/tiny_hello-Os/root-recipe`. For the SSM selectors the catalog names `mlp_001` as the readout: `cat(scan first, scan mean, scan last, numeric features)` → Linear → GELU → Linear. `affine_004` is the mixer's `out_proj`. `inspect outputs` returns one `[1, 33]` logit tensor, not the direct-effect head dict, so `decode.py` does not apply. The label order is the PAN runtime's `RUNTIME_NEURAL_LABELS`.
+
+**Every selector at its first refusal** (*measured here*, 2026-10-31; one process via `debug/scratch/debug_many.py`, 12 cells in 183 s):
+
+| selector | program | step, rip | instruction | consumer runs | selector's pick | consumer family's rank |
+|---|---|---|---|---|---|---|
+| `sel_nn` | `dev/copy-O2` | 0, `0x401000` | `xor %rbp,%rbp` | XOR_RM_REG | LEA 0.335 | 12 |
+| `sel_mamba` | `dev/copy-O2` | 0, `0x401000` | `xor %rbp,%rbp` | XOR_RM_REG | MOV_REG_RM 0.967 | 6 |
+| `sel_hydra` | `dev/copy-O2` | 0, `0x401000` | `xor %rbp,%rbp` | XOR_RM_REG | MOV_RM_REG 0.999 | 6 |
+| `sel_pan_isa` | `dev/copy-O2` | 0, `0x401000` | `xor %rbp,%rbp` | XOR_RM_REG | SUB_IMM_RM 0.590 | 11 |
+| `sel_fieldlm`, `sel_spf` | `dev/copy-O2` | 1, `0x401003` | `and $-16,%rsp` | **none** (consumer: unsupported) | route `83 /4` missing; learned `83` routes: `/0` ADD_IMM_RM, `/5` SUB_IMM_RM | — |
+| `sel_mamba` | `c_apps/tiny_hello-Os` | 0, `0x401000` | `mov $1,%eax` | MOV_IMM_REG | JMP_REL8 0.998 | 4 |
+| `sel_hydra` | `c_apps/tiny_hello-Os` | 2, `0x40100a` | `mov $0xe,%edx` | MOV_IMM_REG | XOR_RM_REG 0.765 | 7 |
+| all six | `c_apps/large_records-Os` | 0, `0x401026` | `push %rax` | **none** (consumer: unsupported) | e.g. `sel_mamba` MOV_IMM_REG 1.000; structural: route `50` missing | — |
+
+What this shows:
+
+1. **The neural selectors fail on the first instruction of every `dev` program.** That instruction is `xor %rbp,%rbp`. The consumer can run it (XOR_RM_REG), and the structural selectors route it correctly. All four neural selectors pick something else, and two of them are almost certain (0.967 and 0.999). The right family is ranked 6th to 12th.
+2. **The structural selectors stop on the instruction where the direct-effect models first diverge.** That is `and $-16,%rsp` (§3). It is not a selection error: the PAN consumer has no family for `83 /4`, so no selector could pass it. The route table shows the same gap: for opcode `0x83` it knows only `/0` (add) and `/5` (sub).
+3. **`push %rax` is a consumer gap too.** It stops all six selectors on `large_records`. The neural selectors still pick a family for it, `sel_mamba` with probability 1.000. The runtime refuses because the typed adapter refuses, not because of the selector.
+4. **A family can be right for one register and wrong for another.** `sel_hydra` runs `mov $1,%eax` and `mov $0x402000,%esi` as MOV_IMM_REG. It then calls `mov $0xe,%edx` XOR_RM_REG at 0.765. Same opcode row (`b8+r`), different register.
+
+**Fork and edit: which half of the readout picks the wrong family?** The SSM selectors' readout input concatenates 48 byte-scan features with the 42 numeric features. `debug/scratch/sel_lab.py` (appendix) breaks at `mlp_001`'s entry and captures a cut there. It then forks three arms from that one cut: no edit, numeric half zeroed, and scan half zeroed. In each arm it reads the top family and the rank of the consumer's family (*measured here*, 4 cases, 216 s including one `just debug` recording):
+
+```text
+{"case": "sel_mamba/c_apps/tiny_hello-Os", "arm": "no edit",                  "top": ["JMP_REL8", 0.9981],        "typed": ["MOV_IMM_REG", 4, 4.04e-06]}
+{"case": "sel_mamba/c_apps/tiny_hello-Os", "arm": "scan only (numeric := 0)", "top": ["JMP_REL8", 0.9938],        "typed": ["MOV_IMM_REG", 5, 8.91e-07]}
+{"case": "sel_mamba/c_apps/tiny_hello-Os", "arm": "numeric only (scan := 0)", "top": ["MOV_IMM_REG", 0.204],       "typed": ["MOV_IMM_REG", 1, 0.204]}
+{"case": "sel_hydra/c_apps/tiny_hello-Os", "arm": "no edit",                  "top": ["XOR_RM_REG", 0.7655],      "typed": ["MOV_IMM_REG", 7, 0.0083]}
+{"case": "sel_hydra/c_apps/tiny_hello-Os", "arm": "scan only (numeric := 0)", "top": ["XOR_RM_REG", 0.6683],      "typed": ["MOV_IMM_REG", 11, 0.00127]}
+{"case": "sel_hydra/c_apps/tiny_hello-Os", "arm": "numeric only (scan := 0)", "top": ["MOVDQA_XMM_M128", 0.4513], "typed": ["MOV_IMM_REG", 3, 0.0423]}
+{"case": "sel_mamba/dev/copy-O2",          "arm": "no edit",                  "top": ["MOV_REG_RM", 0.967],       "typed": ["XOR_RM_REG", 6, 1.65e-10]}
+{"case": "sel_mamba/dev/copy-O2",          "arm": "scan only (numeric := 0)", "top": ["MOV_REG_RM", 0.8354],      "typed": ["XOR_RM_REG", 8, 9e-10]}
+{"case": "sel_mamba/dev/copy-O2",          "arm": "numeric only (scan := 0)", "top": ["MOVDQU_XMM_XMM", 0.4485],  "typed": ["XOR_RM_REG", 16, 0.00298]}
+{"case": "sel_hydra/dev/copy-O2",          "arm": "no edit",                  "top": ["MOV_RM_REG", 0.9986],      "typed": ["XOR_RM_REG", 6, 1.31e-06]}
+{"case": "sel_hydra/dev/copy-O2",          "arm": "scan only (numeric := 0)", "top": ["MOV_RM_REG", 0.9996],      "typed": ["XOR_RM_REG", 6, 4.74e-06]}
+{"case": "sel_hydra/dev/copy-O2",          "arm": "numeric only (scan := 0)", "top": ["MOVDQU_XMM_XMM", 0.2992],  "typed": ["XOR_RM_REG", 15, 0.0157]}
+```
+
+In each case the baseline arm reproduces the debug report's top-1 probability, which checks the replay. The **byte-scan half carries the wrong pick in all 4 cases.** With the numeric features zeroed, each selector keeps the same wrong family at 0.67–1.00. The numeric half alone puts the consumer's family first in only 1 of 4 cases (`sel_mamba` on `mov`, at 0.20). In the rest it drifts to SIMD moves. So the handcrafted numeric features (opcode, ModRM and prefix norms) would not fix these selectors by being weighted up. The scan path reads these byte patterns into the wrong family. This is a lead from 4 inputs and 2 checkpoints. The next probe would transplant the scan features from an instruction the selector gets right, in the style of §4.
+
+## 11. Cheat sheet
 
 Setup and entry points:
 
 ```sh
 mdb() { PYTHONPATH=../saturn-pub/packages/mdb/src ../common/bin/common exec python -m mdb "$@"; }
-just debug <model> <suite> [program]                # report.md + bundle.json (+ root-recipe/ for de_*)
+just debug <model> <suite> [program] [overrides]    # report.md + bundle.json (+ root-recipe/ for de_* and neural sel_*)
+just debug de_mamba dev fib-O2 debug.capture_ports=true   # port-ready recipe for `mdb ports` (renumbers vNNNNNN)
 just mdb debug/<model>/<suite>/<prog>/root-recipe   # interactive; rm -rf …/console before a 2nd run
 mdb discovery replay <recipe> --interactive --output <new dir>
 mdb discovery replay <recipe> --command "<cmd>" [--command …] --output <new dir>
@@ -506,6 +679,10 @@ mdb discovery resume <store> <cut_id> --command … --output <new dir>
 mdb discovery inspect <out>/journal --last N        # offline, verifies the hash chain
 mdb discovery inspect <store> --cut <cut_id>        # offline frontier manifest
 mdb forward-symbols <recipe>/trace.json --readable | --value vNNNNNN | --step N | --list
+mdb forecast verify|show <transaction> [--expected-seal SHA]   # offline seal/event-chain check, no model
+mdb equations compare predicted.json observed.json --rules rules.json [--residuals]
+mdb equations find|list|show --catalog <dir> [--alias …|--law-id …|--reader …]
+mdb ports <trace.json> [--select 'module:<path>:return' --first-consumers | --kind module]   # needs capture_ports=True (just debug … debug.capture_ports=true)
 ```
 
 Console commands (`src/mdb/discovery_script.py`). Entries marked † come from the parser and were not exercised in this guide:
@@ -537,6 +714,22 @@ call {"operation":"fork","payload":{"name":"arm2","cut":"at_decoder"}}          
 call {"operation":"capabilities"}
 ```
 
+Sealed forecast skeleton (§9; full version in the appendix's `forecast.py`):
+
+```python
+from mdb.forecast_transaction import ForecastTransaction
+from mdb.equation_comparison import compare_equations
+t = ForecastTransaction(out, model=model, model_identity=ckpt_sha, input_identity=inputs_sha,
+                        source_identity=equation_shas, frontier={"kind": "raw-input"})
+with t:
+    t.frontier("cases", inputs)            # publish raw inputs; no model call
+    t.predict("equations", predict)        # predict(ctx) -> {"predictions": ...}; ctx.weights = actual state_dict
+    t.seal()                               # model calls before this point raise
+    t.execute("native", execute)           # execute(ctx) calls ctx.model(...)
+compare_equations(t.prediction("equations")[k]["heads"], t.observation("native")[k]["heads"],
+                  decision_rules={"regs": "positive", "length": "argmax", ...})
+```
+
 Python (same semantics, `src/mdb/discovery.py`):
 
 ```python
@@ -550,7 +743,7 @@ s.add_lane("lane_00", lambda: load_capture("debug/de_mamba/dev/fib-O2/root-recip
 s.call("break", {"selector": "mlp_001", "edge": "exit", "id": "dec"}); s.call("motion", {"action": "continue"})
 ```
 
-## 11. Limits, gotchas, next steps
+## 12. Limits, gotchas, next steps
 
 Gotchas (all *measured here* unless marked):
 
@@ -560,6 +753,8 @@ Gotchas (all *measured here* unless marked):
 - **No weight edits in the discovery console.** Roots are read-only (`edits require a produced, live, unconsumed tensor; roots are read-only`). Edit a produced value instead: a module output, or the transposed weight view an `affine` produces just before its `addmm`, for a one-forward weight experiment. That last idea is *not run here*.
 - **A recipe replays from its roots.** It does not resume the original eager run (`direct_eager_pause: false`); use `save-frontier` for real pause/resume.
 - **The driver has no RAM, no branch targets, and stops before stores/syscalls** (§6). It is for stepping straight-line ALU code, not whole programs.
+- **`mdb ports` on a default `just debug` recipe fails** with `NativePortError: trace has no native ports; record with capture_ports=True` (*measured here*). Re-run `just debug … debug.capture_ports=true`. Expect new `vNNNNNN` ids and PCs; the 571 events are the same.
+- **Forecast scope.** §9's equations are written for checkpoint `9399e921…` (`de_mamba`) only. `de_nn` and `de_hydra` have no independent equations, so a sealed forecast for them would need new ones. A forecast is not an oracle either: it predicts the model, and correctness still comes from the native trace.
 - **`mdb forward-symbols --readable --scope decoder` printed "no operations in this scope"** on these recipes; use `--value` / `--step` or the unscoped listing.
 - **Cost.** Each CLI call took about 20–60 s wall, almost all of it environment start-up. Inside one Python process, 8 recordings plus 16 replayed suffixes took 12.2 s. Keep loops in one process, and send anything wider than a handful of inputs to Beast.
 
@@ -570,9 +765,9 @@ Scope of the claims:
 
 Next steps that would make this better:
 
-1. Wire selector models into `stage=debug` so their forwards get recipes too (MDB already records any frozen torch model).
+1. Selectors (§10): transplant the byte-scan readout features from an instruction each selector gets right. Then sweep the scan/numeric fork over every refusal in one mrun lease.
 2. Saturn requests filed today: `mdb-discovery-donor-lane-acts` (console transplants with donor custody) and `mdb-discovery-isa-output-decode-profile` (decoded heads in the console). Upvoted: `mdb-computation-hypotheses-and-causal-naming` (attach the OF counterexample to the table's flag rule).
-3. Move the `/r` sweep, decoder-coordinate sweep and `mixers.2` scale × input grid onto Beast as one mrun lease using `FrozenNativeBatch`, then seal the table's predictions as forecasts before release (§9).
+3. Move the `/r` sweep, decoder-coordinate sweep and `mixers.2` scale × input grid onto Beast as one mrun lease using `FrozenNativeBatch`, and seal the full-forward forecast for every swept input before release. §9 did this for 10 inputs locally; the sweep would also hunt for forecast-model disagreements at the smallest margins.
 4. Give `just mdb` a fresh output directory per session.
 
 ---
@@ -585,7 +780,7 @@ The measured Python examples were run as:
 PYTHONPATH=src:../saturn-pub/packages/mdb/src ../common/bin/common exec python debug/scratch/lab.py <section>
 ```
 
-The sections are `sweep_ext`, `symtab`, `edit_and`, `selector_check`, `bit32`, `bit32_check` and `driver`, run one process at a time. `debug/` is gitignored, so both files are reproduced verbatim below. `lab.py` imports harness code (`load_adapter`) the same way `src/isa_bench/debug.py` does.
+The sections are `sweep_ext`, `symtab`, `edit_and`, `selector_check`, `bit32`, `bit32_check` and `driver`, run one process at a time. §9 used `debug/scratch/forecast.py OUT_DIR` and `forecast.py guard OUT_DIR`. §10 used `debug/scratch/debug_many.py MODEL:SUITE[:PROGRAM] …` (stage=debug for many cells in one process) and `sel_lab.py DEBUG_DIR …`. `debug/` is gitignored, so all of these files are reproduced verbatim below. `lab.py` imports harness code (`load_adapter`) the same way `src/isa_bench/debug.py` does.
 
 ### `debug/scratch/decode.py`
 
@@ -623,6 +818,216 @@ if __name__ == "__main__":
         if rec.get("command") == "inspect outputs":
             branch = rec["response"]["lane"]["branch_id"]
             print(json.dumps({"line": rec["line"], "branch": branch, **decode(rec["response"]["value"])}))
+```
+
+### `debug/scratch/forecast.py`
+
+```python
+"""Sealed computation forecasts for de_mamba on real isa-bench inputs (docs/debugging-with-mdb.md section 9).
+
+    PYTHONPATH=src:../saturn-pub/packages/mdb/src ../common/bin/common exec python debug/scratch/forecast.py OUT_DIR
+
+For each case, MDB's independent NumPy FP64 equations (saturn-pub/packages/mdb/qualification/raw_isa_equations.py,
+written for checkpoint 9399e921) compute every head of the forward from the raw window, registers and flags. The
+forecasts are sealed in a ForecastTransaction, and only then is the Torch FP32 model allowed to run. The
+transaction's module guards deny any model call before the seal.
+
+Writes OUT_DIR/{transaction/, equations/, ports/trace.json, and_rsp.predicted.json, and_rsp.observed.json, rules.json}.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import runpy
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lab import FLAGS, M64, REGS, REPO, adapter, native_before, roots  # noqa: E402
+
+QUAL = REPO.parent / "saturn-pub/packages/mdb/qualification"
+RULES = {name: "argmax" if name in ("dest", "src", "width", "length") else "positive"
+         for name in ("regs", "flags", "dest", "src", "width", "length", "syscall", "imm",
+                      "store", "store_addr", "store_value")}
+
+
+def sha(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def cases():
+    """Real program inputs (with their native after-state) first, then the symbol table's panel inputs."""
+    out = []
+    for prog in ("fib-O2", "fib-O0", "sort-O2", "strings-O0"):  # `and $-16,%rsp` is instruction 2 of each
+        step, window, before, after = native_before("dev", prog, 0x401003)
+        out.append((f"and_rsp.{prog}", f"{prog}@0x401003 step {step}", window, before, after))
+    for suite, prog, rip in (("dev", "fib-O2", 0x40121A), ("heldout_m4", "checksum-O2", 0x401183)):
+        step, window, before, after = native_before(suite, prog, rip)
+        out.append((f"add1.{prog}.{rip:x}", f"{prog}@{rip:#x} step {step}", window, before, after))
+    f = json.loads((REPO.parent / "isa/outputs/response-quotient-r3-mamba/findings.json").read_text())
+    for ex in f["heldout_metrics"]["target_bit_exceptions"]:
+        out.append((f"panel.{ex['query_id']}", f"sealed panel {ex['query_id']}", bytes.fromhex(ex["raw_window_hex"]),
+                    (ex["input_register_words_before"], dict.fromkeys(FLAGS, 0)), None))
+    regs = list(f["heldout_metrics"]["target_bit_exceptions"][0]["input_register_words_before"])
+    regs[7] = (1 << 63) - 1
+    out.append(("fresh.rdi_2p63m1", "fresh RDI=2^63-1", bytes.fromhex("4883c7014883c7014883c7014883c7"),
+                (regs, dict.fromkeys(FLAGS, 0)), None))
+    rows = {}
+    for key, label, window, before, after in out:
+        if isinstance(before, tuple):
+            words, flags = list(before[0]), before[1]
+        else:
+            words, flags = list(before.regs[:8]), {n: before.flags[n] for n in FLAGS}
+        rows[key] = {"label": label, "window_hex": bytes(window).ljust(15, b"\0")[:15].hex(),
+                     "register_words": [int(w) for w in words], "flags": [int(flags[n]) for n in FLAGS],
+                     "native_after": None if after is None else {
+                         "register_words": [int(w) for w in after.regs[:8]],
+                         "flags": [int(after.flags[n]) for n in FLAGS], "rip": int(after.rip)}}
+    return rows
+
+
+def margin(heads):
+    """Smallest |logit| over the sign-decided heads: how close the forward came to flipping a bit."""
+    import numpy as np
+
+    return float(min(np.abs(np.asarray(heads[k], dtype=np.float64)).min()
+                     for k, rule in RULES.items() if rule == "positive" and k in heads))
+
+
+def main(out: Path):
+    import numpy as np
+
+    from mdb.equation_comparison import EquationCatalog, compare_equations
+    from mdb.forecast_transaction import ForecastTransaction
+    from mdb.forward_recording import record_forward
+
+    formulas = runpy.run_path(str(QUAL / "raw_isa_equations.py"))
+    model = adapter("de_mamba").model.requires_grad_(False)
+    checkpoint = sha((REPO / "artifacts/frozen/de_mamba/model.pt").read_bytes())
+    plan = cases()
+    plan_raw = json.dumps(plan, sort_keys=True).encode()
+    sources = {name: sha((QUAL / name).read_bytes()) for name in ("raw_isa_equations.py", "explicit_suffix_equations.py")}
+    sources["forecast.py"] = sha(Path(__file__).read_bytes())
+    out.mkdir(parents=True, exist_ok=False)
+    calls = {"model": 0}
+    model.register_forward_pre_hook(lambda module, args: calls.__setitem__("model", calls["model"] + 1))
+    t0 = time.monotonic()
+
+    def predict(context):
+        weights = formulas["prepare_weights"](context.weights)
+        result = {}
+        for key, case in context.frontiers["cases"].items():
+            raw = formulas["roots"](case["window_hex"], case["register_words"], case["flags"])
+            p = formulas["predict_raw"](*raw, weights)
+            result[key] = {"heads": {k: np.asarray(v, dtype=np.float64) for k, v in p["heads"].items()},
+                           "decoded": p["decoded"]}
+        return {"predictions": result}
+
+    def execute(context):
+        import torch
+
+        result = {}
+        with torch.no_grad():
+            for key, case in context.frontiers["cases"].items():
+                words, flags = case["register_words"], dict(zip(FLAGS, case["flags"]))
+                heads = context.model(*roots(bytes.fromhex(case["window_hex"]), words, flags))
+                result[key] = {"heads": {k: v.detach().numpy().astype(np.float64) for k, v in heads.items()}}
+        return result
+
+    transaction = ForecastTransaction(out / "transaction", model=model, model_identity=checkpoint,
+                                      input_identity=sha(plan_raw), source_identity=sources,
+                                      frontier={"kind": "raw-input"})
+    with transaction:
+        transaction.frontier("cases", plan)
+        transaction.predict("equations", predict)
+        transaction.seal()
+        sealed = transaction.report()
+        print(json.dumps({"phase": "sealed", "seal_sha256": sealed["seal_sha256"], "model_calls_so_far": calls["model"],
+                          "native_calls": sealed["work"]["native_calls"], "wall_s": round(time.monotonic() - t0, 2)}))
+        forecasts = transaction.prediction("equations")
+        for key in plan:
+            d = forecasts[key]["decoded"]
+            print(json.dumps({"sealed": key, "regs": {REGS[i]: hex(w) for i, w in enumerate(d["register_words"])
+                                                      if w != plan[key]["register_words"][i]},
+                              "flags": dict(zip(FLAGS, d["flags"])), "length": d["length"]}))
+        transaction.execute("native", execute)
+        report = transaction.report()
+    observed = transaction.observation("native")
+    print(json.dumps({"phase": report["phase"], "model_calls": calls["model"], "native_calls": report["work"]["native_calls"],
+                      "event_head": report["event_head"], "wall_s": round(time.monotonic() - t0, 2)}))
+
+    catalog = EquationCatalog(out / "equations")
+    for key, case in plan.items():
+        pred, obs = forecasts[key]["heads"], observed[key]["heads"]
+        cmp = compare_equations(pred, obs, decision_rules=RULES)
+        model_words = formulas["decode"](obs)
+        native = case["native_after"]
+        slot = next((i for i in range(8) if forecasts[key]["decoded"]["register_words"][i] != case["register_words"][i]), None)
+        row = {"case": key, "label": case["label"], "decision_mismatches": cmp["decision_mismatches"],
+               "max_abs_logit_error": round(cmp["max_abs"], 7), "model_margin": round(margin(obs), 4),
+               "forecast_margin": round(margin(pred), 4)}
+        if slot is not None:
+            row.update({"slot": REGS[slot], "in": hex(case["register_words"][slot]),
+                        "forecast": hex(forecasts[key]["decoded"]["register_words"][slot]),
+                        "model": hex(model_words["register_words"][slot]),
+                        "native": None if native is None else hex(native["register_words"][slot])})
+        row["flags_forecast_model_native"] = [forecasts[key]["decoded"]["flags"], model_words["flags"],
+                                              None if native is None else native["flags"]]
+        if native is not None:
+            row["model_correct"] = (model_words["register_words"] == native["register_words"]
+                                    and model_words["flags"] == native["flags"])
+        print(json.dumps(row))
+        catalog.record(law_id="r3.full-raw-state-transition", route_id="native", alias="isa-bench " + key,
+                       binding={"model_identity": checkpoint, "execution": {"backend": "cpu", "dtype": "float32"},
+                                "input_identity": sha(json.dumps(case, sort_keys=True).encode()),
+                                "frontier": "raw-input", "horizon": 1, "source_identity": sources},
+                       report=cmp, conditions=[{"field": "checkpoint", "op": "eq", "value": checkpoint}],
+                       tested_context={"checkpoint": checkpoint, "case": key, "window_hex": case["window_hex"]},
+                       readers=["regs", "flags", "length"],
+                       evidence={"forecast_seal": report["seal_sha256"]})
+
+    # files for `mdb equations compare` and `mdb ports`
+    key = "and_rsp.fib-O2"
+    for name, heads in (("predicted", forecasts[key]["heads"]), ("observed", observed[key]["heads"])):
+        (out / f"and_rsp.{name}.json").write_text(json.dumps({k: np.asarray(v).tolist() for k, v in heads.items()}))
+    (out / "rules.json").write_text(json.dumps(RULES))
+    case = plan[key]
+    capture = record_forward(model, roots(bytes.fromhex(case["window_hex"]), case["register_words"],
+                                          dict(zip(FLAGS, case["flags"]))),
+                             model_identity=checkpoint, execution={"backend": "cpu", "dtype": "float32"},
+                             input_identity=sha(json.dumps(case, sort_keys=True).encode()), capture_ports=True)
+    (out / "ports").mkdir()
+    (out / "ports/trace.json").write_text(json.dumps(capture.trace, sort_keys=True))
+    print(json.dumps({"done": str(out), "wall_s": round(time.monotonic() - t0, 2)}))
+
+
+def guard(out: Path):
+    """A forecast that peeks: the predict callback calls the model before the seal."""
+    from mdb.forecast_transaction import ForecastTransaction
+
+    model = adapter("de_mamba").model.requires_grad_(False)
+    case = cases()["and_rsp.fib-O2"]
+    args = roots(bytes.fromhex(case["window_hex"]), case["register_words"], dict(zip(FLAGS, case["flags"])))
+
+    def cheat(context):
+        return {"predictions": {"heads": {k: v.detach().numpy() for k, v in model(*args).items()}}}
+
+    transaction = ForecastTransaction(out, model=model, model_identity="9399e921", input_identity="peek",
+                                      source_identity={"cheat": "1"}, frontier={"kind": "raw-input"})
+    try:
+        with transaction:
+            transaction.frontier("cases", case)
+            transaction.predict("peek", cheat)
+    except Exception as error:  # noqa: BLE001
+        print(json.dumps({"error": f"{type(error).__name__}: {error}"[:300]}))
+    r = transaction.report()
+    print(json.dumps({"phase": r["phase"], "seal_sha256": r["seal_sha256"], "work": r["work"],
+                      "violations": r["violations"]})[:800])
+
+
+if __name__ == "__main__":
+    (guard if sys.argv[1:2] == ["guard"] else main)(Path(sys.argv[-1]))
 ```
 
 ### `debug/scratch/lab.py`
@@ -1039,4 +1444,95 @@ finish law
 step update
 until mlp_004
 step forward
+```
+
+### `debug/scratch/debug_many.py`
+
+```python
+"""stage=debug for many (model, suite, program) cells in one process: python debug/scratch/debug_many.py m:suite[:program] ..."""
+import json
+import sys
+
+from hydra import compose, initialize_config_dir
+
+from isa_bench.cli import CONF, _plain
+from isa_bench.debug import run_debug
+
+with initialize_config_dir(config_dir=str(CONF), version_base=None):
+    for spec in sys.argv[1:]:
+        model, suite, *program = spec.split(":")
+        over = [f"model={model}", f"suite={suite}", "stage=debug"] + ([f"debug.program={program[0]}"] if program else [])
+        info = run_debug(_plain(compose(config_name="config", overrides=over)))
+```
+
+### `debug/scratch/sel_lab.py`
+
+```python
+"""Selector lab for docs/debugging-with-mdb.md §9: which half of the readout input names the wrong family?
+
+    PYTHONPATH=src:../saturn-pub/packages/mdb/src ../common/bin/common exec python debug/scratch/sel_lab.py \
+        debug/sel_mamba/c_apps/tiny_hello-Os [more debug dirs ...]
+
+The SSM selectors' runtime head reads cat(scan[first], scan[mean], scan[last], numeric) -> MLP -> 33 logits.
+At the readout's entry this forks three arms from one cut: no edit, numeric features zeroed (scan only),
+scan zeroed (numeric only), and prints the top family and the typed family's rank in each.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+
+
+def ok(r):
+    if not r.get("ok"):
+        raise SystemExit(json.dumps(r, default=str)[:3000])
+    return r
+
+
+def main(dirs):
+    import torch
+    from mdb.discovery import DiscoverySession
+    from mdb.discovery_cli import load_capture
+
+    sys.path.insert(0, str(REPO / "models/_vendor/isa_r3"))
+    from pan_isa.native import mount, runtime_module
+
+    mount()
+    labels = runtime_module().RUNTIME_NEURAL_LABELS
+    for d in (Path(x).resolve() for x in dirs):
+        bundle = json.loads((d / "bundle.json").read_text())
+        typed = bundle["typed_family"]
+        s = DiscoverySession(budgets={"max_native_operations": 4_000_000})
+        s.add_lane("lane_00", lambda: load_capture(d / "root-recipe"))
+        ok(s.call("break", {"selector": "mlp_001", "edge": "enter", "id": "readout"}))
+        ok(s.call("motion", {"action": "continue"}))
+        ok(s.call("capture", {"name": "readout"}))
+        ok(s.call("break", {"action": "disable", "id": "readout"}))
+        pooled = torch.tensor(ok(s.call("inspect", {"selector": "mlp_001:input"}))["value"]["value"])
+        scan = pooled.shape[-1] - len(bundle["numeric"])
+        assert scan == 48, scan  # SSMRuntimeHead: 3 x 16 pooled scan features
+        arms = {"no edit": None}
+        for name, keep in (("scan only (numeric := 0)", slice(0, scan)), ("numeric only (scan := 0)", slice(scan, None))):
+            v = torch.zeros_like(pooled)
+            v[..., keep] = pooled[..., keep]
+            arms[name] = v
+        for i, (name, value) in enumerate(arms.items()):
+            ok(s.call("fork", {"name": f"arm{i}", "cut": "readout"}))
+            ok(s.call("select", {"name": f"arm{i}"}))
+            if value is not None:
+                ok(s.call("act", {"selector": "mlp_001:input", "value": value.tolist()}))
+            ok(s.call("motion", {"action": "step", "unit": "forward"}))
+            probs = torch.tensor(ok(s.call("inspect", {"selector": "outputs"}))["value"]["value"])[0].softmax(-1)
+            order = probs.argsort(descending=True).tolist()
+            t = labels.index(typed)
+            print(json.dumps({"case": str(d.relative_to(REPO / "debug")), "arm": name,
+                              "top": [labels[order[0]], round(float(probs[order[0]]), 4)],
+                              "typed": [typed, order.index(t) + 1, float(f"{float(probs[t]):.3g}")]}))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
 ```

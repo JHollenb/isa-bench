@@ -98,6 +98,14 @@ class Base:
         """Inputs needed to reproduce the first divergent step offline (MDB, record lookup)."""
         return None
 
+    def debug_forward(self, bundle: dict) -> dict | None:
+        """The bundle's step as one torch forward for MDB: {module, args, model_identity, input_identity, kind}."""
+        return None
+
+    def debug_explain(self, bundle: dict, output=None) -> dict | None:
+        """Family-specific reading of the bundle (and of the recorded forward's output, if any) for report.md."""
+        return None
+
     def base_metadata(self) -> dict:
         return {"family": self.family, "artifact_bytes": tree_bytes(self.artifact),
                 "artifact_sha256": tree_sha256(self.artifact)}

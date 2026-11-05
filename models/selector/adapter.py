@@ -31,18 +31,89 @@ class Adapter(Base):
 
         self.Runtime = SPFPrimaryPanRuntime
         self.runtime_model, meta = None, {"parameter_count": 0, "implementation": "supplied PAN consumer (no selector)"}
+        self.last_call = None
         if self.cfg.get("selector"):
             from isa_lab.full_training import restore
             from pan_isa.runtime_adapter import SharedRuntimeModel
 
             selector = restore(json.loads((self.artifact / "model.json").read_text()))
             self.runtime_model = SharedRuntimeModel(selector)
+            self._remember_calls(selector)
             payload = selector.export()
             meta = {k: payload[k] for k in ("parameter_count", "learned_record_count", "packed_plane_bytes") if k in payload}
             meta["implementation"] = selector.implementation
             meta["tensor_state_bytes"] = sum(t.numel() * t.element_size() for t in selector.state_dict().values()
                                              if isinstance(t, torch.Tensor))
         self.metadata = {**self.base_metadata(), **meta}
+
+    def _remember_calls(self, selector):
+        """Keep the last selector call (instruction + features) so a refusal can be replayed offline (stage=debug)."""
+        propose, predict = self.runtime_model.propose, selector.runtime_predict
+
+        def remembered_propose(runtime, instruction):
+            self.last_call = {"runtime": runtime, "instruction": instruction}
+            return propose(runtime, instruction)
+
+        def remembered_predict(raw, numeric):
+            # set before predicting: structural selectors raise on a missing route
+            self.last_call.update(raw=raw, numeric=numeric)
+            return predict(raw, numeric)
+
+        self.runtime_model.propose = remembered_propose
+        selector.runtime_predict = remembered_predict
+
+    def debug_bundle(self, outcome):
+        call = self.last_call
+        if outcome.get("status") == "success" or not call or "raw" not in call:
+            return None
+        ins = call["instruction"]
+        try:  # the family the supplied typed adapter would execute: the label the selector had to match
+            typed = self.runtime_model.adapter.propose(call["runtime"], ins).instruction_name
+        except Exception as error:
+            typed = f"(typed adapter: {type(error).__name__}: {str(error)[:120]})"
+        return {"kind": "selector", "selector": self.cfg["selector"], "artifact": self.cfg["artifact"],
+                "artifact_sha256": self.metadata.get("artifact_sha256"), "step": int(outcome.get("steps_run") or 1) - 1,
+                "rip": hex(ins.rip), "bytes": bytes(ins.raw).hex(), "typed_family": typed,
+                "raw": [int(x) for x in call["raw"]], "numeric": [float(x) for x in call["numeric"]]}
+
+    def debug_forward(self, bundle):
+        """The selector's runtime head on the recorded features. Structural selectors (FieldLM, SPF) have no forward."""
+        selector = self.runtime_model.selector
+        if "runtime" not in getattr(selector, "heads", {}):
+            return None
+        import torch
+
+        head = selector.heads["runtime"].eval()
+        return {"module": head, "args": (torch.tensor([bundle["raw"]]), torch.tensor([bundle["numeric"]])),
+                "model_identity": self.metadata["artifact_sha256"], "kind": "isa-bench-selector-call",
+                "input_identity": {"instruction_hex": bundle["bytes"], "rip": bundle["rip"], "raw": bundle["raw"],
+                                   "numeric": bundle["numeric"]}}
+
+    def debug_explain(self, bundle, output=None):
+        """What the selector chose against what the typed adapter executes: top-5 labels, or the route lookup."""
+        from isa_lab.full_models import runtime_key
+        from pan_isa.native import runtime_module
+
+        labels = runtime_module().RUNTIME_NEURAL_LABELS
+        typed = bundle.get("typed_family")
+        selector = self.runtime_model.selector
+        if output is not None:
+            probs = output[0].softmax(-1)
+            order = probs.argsort(descending=True).tolist()
+            out = {"top": [[labels[i], round(float(probs[i]), 6)] for i in order[:5]]}
+            if typed in labels:
+                i = labels.index(typed)
+                out["typed"] = {"label": typed, "rank": order.index(i) + 1, "prob": round(float(probs[i]), 6)}
+            return out
+        if not hasattr(selector, "routes"):
+            return None
+        key = runtime_key(bundle["raw"], bundle["numeric"])
+        found = selector.routes.get(json.dumps(list(key), separators=(",", ":")))
+        runtime = {tuple(json.loads(k)): v for k, v in selector.routes.items() if json.loads(k)[0] == key[0]}  # not stage keys
+        same_opcode = sorted((list(k), labels[v[0]]) for k, v in runtime.items() if k[1] == key[1])
+        return {"route_key": list(key), "route_fields": ["kind", "opcode", "second", "p66", "pf2", "pf3", "memory", "reg", "aligned"],
+                "route_label": None if found is None else labels[found[0]], "routes": len(runtime),
+                "same_opcode_routes": [[k, lab] for k, lab in same_opcode]}
 
     def _native_memory(self, program_dir):
         from pan_x86_isa.memory import SparseMemory

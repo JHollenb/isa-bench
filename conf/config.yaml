@@ -27,6 +27,7 @@ debug:
   program: null              # program tag to debug (e.g. small_checksum-Os)
   step: null                 # step index; default = first divergence
   open: false                # also open the MDB console on the recipe (direct-effect models)
+  capture_ports: false       # record native ports so `mdb ports` works on the recipe (renumbers every vNNNNNN)
 
 board:
   source: mlflow             # mlflow (registered latest-eval versions) | local (outputs/eval)

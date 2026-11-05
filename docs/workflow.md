@@ -271,7 +271,7 @@ just debug de_mamba c_apps medium_sort-Os     # report.md, bundle.json, info.jso
 just mdb debug/de_mamba/c_apps/medium_sort-Os/root-recipe   # interactive MDB console
 ```
 
-`report.md` gives the stop, the first divergence, model vs native registers and flags, and the disassembly around RIP. For direct-effect models it also records that single forward with MDB. `de_mamba` is the checkpoint with the recovered symbol table. Tours: [debugging-with-mdb.md](debugging-with-mdb.md).
+`report.md` gives the stop, the first divergence, model vs native registers and flags, and the disassembly around RIP. For direct-effect models it also records that single forward with MDB. `de_mamba` is the checkpoint with the recovered symbol table. For selectors it shows the family picked against the family the PAN consumer runs, records the runtime head's forward for the four neural selectors, and shows the route lookup for FieldLM/SPF. Selector bundles need cells evaluated on or after `job-88365acf0ff3`. Add `debug.capture_ports=true` for a recipe `mdb ports` can read. Tours: [debugging-with-mdb.md](debugging-with-mdb.md).
 
 For M5d and the selectors, `report.md` names the record, abstention reason or missing route at the stop. MDB recording applies to the neural models.
 

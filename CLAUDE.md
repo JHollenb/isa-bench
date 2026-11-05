@@ -15,7 +15,7 @@ Pipeline: compiled C programs -> native ptrace reference on Beast -> each learne
 10. Report numbers from `outputs/eval/*/*/summary.json` with the mrun job id; label anything not measured as asserted.
 
 ## Adding a model family
-`models/<family>/adapter.py` defines `Adapter(Base)` with `load()` and `run(program_dir, trace, max_steps) -> finish(...)`. Start from the native `trace.state(0)` and `mem.bin`; call `comparator.observe(i, state_after, window=..., before=...)` after every instruction; check `self.time_up(i)` each step; return stop kinds the `finish` classifier knows (exit, abstain, refused*, unsupported*, *fault, step_limit, wall_limit). Implement `debug_bundle` to expose the divergent step's inputs. Then add `conf/model/<name>.yaml` and a `params.yaml` entry.
+`models/<family>/adapter.py` defines `Adapter(Base)` with `load()` and `run(program_dir, trace, max_steps) -> finish(...)`. Start from the native `trace.state(0)` and `mem.bin`; call `comparator.observe(i, state_after, window=..., before=...)` after every instruction; check `self.time_up(i)` each step; return stop kinds the `finish` classifier knows (exit, abstain, refused*, unsupported*, *fault, step_limit, wall_limit). Implement `debug_bundle` to expose the divergent step's inputs; optionally `debug_forward(bundle)` (one torch forward for MDB) and `debug_explain(bundle, output)` (family-specific report section), so `stage=debug` never imports family code. Then add `conf/model/<name>.yaml` and a `params.yaml` entry.
 
 ## Useful
 - `just smoke <model>`: tiny_hello only, no warm repeats.

@@ -49,9 +49,10 @@ register model:
 register-all:
     for m in $(ls conf/model | sed 's/.yaml$//'); do {{py}} stage=register model=$m || true; done
 
-# first divergence report + MDB root recipe (direct-effect models) for one cell
-debug model suite="c_apps" program="":
-    {{py}} stage=debug model={{model}} suite={{suite}} {{ if program != "" { "debug.program=" + program } else { "" } }}
+# first divergence/refusal report + MDB root recipe (direct-effect and neural selector models) for one cell;
+# Hydra overrides after the program, e.g. `just debug de_mamba dev fib-O2 debug.capture_ports=true`
+debug model suite="c_apps" program="" *overrides:
+    {{py}} stage=debug model={{model}} suite={{suite}} {{ if program != "" { "debug.program=" + program } else { "" } }} {{overrides}}
 
 # open the MDB discovery console on a debug recipe
 mdb recipe:

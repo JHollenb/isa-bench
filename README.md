@@ -74,7 +74,7 @@ A new variant is a new config: copy `conf/model/de_mamba.yaml` to `conf/model/de
 
 - `report.md` (stop, first divergence, model vs native state, the disassembly around RIP);
 - `bundle.json` (the exact inputs of the divergent step);
-- for direct-effect models, `root-recipe/`, an MDB discovery recording of that single forward.
+- for direct-effect models and the four neural selectors, `root-recipe/`, an MDB discovery recording of that single forward (selectors: the runtime head at the refusing instruction, with a top-5 vs typed-family table in the report; FieldLM/SPF get the route lookup instead). Add `debug.capture_ports=true` for a recipe `mdb ports` can read.
 
 Open the recipe with `just mdb debug/<...>/root-recipe` (or `python -m mdb discovery replay <recipe> --interactive --output <dir>`). The `de_mamba` checkpoint (sha256 `9399e921…`) is the R3 Mamba whose symbol table was recovered in `../isa/outputs/moonshot-r3-mamba/` (`symbol-table.md`, `catalog.json`). The debug report links it whenever the checkpoint hash matches.
 

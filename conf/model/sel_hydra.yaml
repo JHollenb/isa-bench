@@ -7,4 +7,4 @@ artifact: artifacts/frozen/sel_hydra
 compare: {gprs: 16, flags: [CF, ZF, SF, OF]}
 resources: {ram_mb: 2500, cpu_threads: 2}
 train: null
-debug: {mdb: false, symbol_table: null}
+debug: {mdb: true, explain: true, symbol_table: null}
