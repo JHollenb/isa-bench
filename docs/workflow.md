@@ -20,7 +20,7 @@ Rules that apply everywhere (full list in `CLAUDE.md`):
 
 - Comparison is always against the native trace.
 - Unicorn must stay 100% trace-exact on every suite. If it isn't, the harness broke.
-- `fresh1`/`fresh2` are the proof gate's held-out sets. Never put them in routine runs, and never tune anything on them.
+- `fresh1`/`fresh2`/`fresh3` are the proof gate's held-out sets. Never put them in routine runs, and never tune anything on them.
 - At most one heavy Python process on the laptop at a time.
 
 ---
@@ -168,7 +168,7 @@ Memory: 10 run workers at 16 GB was killed_ram (job-b47d3ef0df05). The defaults 
 
 For comparison, the M5d v3 held-out gate (*measured*) took 451 s to prove and 577 s to run with the mutation audit (job-c0612ee9bdb4, job-a57af3da69a8).
 
-Held-out protocol: a set the gate has never seen gets exactly one look. Run it once, report the arms separately, and from then on it is development data. `fresh2` has already had its look.
+Held-out protocol: a set the gate has never seen gets exactly one look. Run it once, report the arms separately, and from then on it is development data. `fresh2` and `fresh3` have already had their looks (fresh3: M5e 4/12 standalone vs M5d 0/12, both 11/12 gated; 2026-11-02).
 
 ---
 

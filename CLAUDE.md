@@ -9,7 +9,7 @@ Pipeline: compiled C programs -> native ptrace reference on Beast -> each learne
 4. A model's family code is only imported through its `models/<family>/adapter.py`, inside a cell subprocess. The harness (`src/isa_bench`) must not import family code.
 5. Comparison is against the native trace, never against Unicorn. Unicorn is a control model and must stay 100% trace-exact on every suite; if it is not, the harness is wrong, not the models.
 6. Architecturally undefined flags are masked (`state.FLAG_EFFECTS`); extend that table from the Intel SDM, never to make a model look better.
-7. `fresh1`/`fresh2` are the M4 proof-gate held-out sets. Do not add them to `params.yaml` suites or tune anything on them.
+7. `fresh1`/`fresh2`/`fresh3` are the proof-gate held-out sets (all spent; the next one is sealed outside this repo until its one look). Do not add them to `params.yaml` suites or tune anything on them.
 8. Frozen artifacts are content-addressed (DVC). A changed artifact is a new model config (`conf/model/<new>.yaml`), not an in-place overwrite.
 9. Saturn's scheduling contract caps a lease at 256 cells; `run_evals` splits bigger matrices.
 10. Report numbers from `outputs/eval/*/*/summary.json` with the mrun job id; label anything not measured as asserted.

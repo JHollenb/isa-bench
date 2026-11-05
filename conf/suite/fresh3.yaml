@@ -1,0 +1,8 @@
+name: fresh3
+description: "M5e fresh set 3 (spent: one look 2026-11-02, matrix job-51f0f5d11236, gates job-552169eb394f m5d / job-6016a61ebc49 m5e; now development data)"
+dir: programs/fresh3
+programs: [crc32, dijkstra, varint, lcs, partition, modpow]
+variants:
+  O0: ["-O0", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+  O2: ["-O2", "-static", "-nostdlib", "-ffreestanding", "-fno-builtin", "-fno-tree-loop-distribute-patterns", "-fno-stack-protector", "-fno-pie", "-no-pie", "-fcf-protection=none"]
+max_trace_steps: 5000000

@@ -41,7 +41,7 @@ All recipes are thin wrappers over `python -m isa_bench stage=<stage> ...` (Hydr
 | `models/<family>/` | Code for one model family: `adapter.py` (load + run a program under the harness contract), optional `train.py`, the family's sources under `src/`. Families: `unicorn` (emulator control), `selector` (June PAN-ISA runtime + the six learned selectors), `direct_effect` (R3 NN/Mamba/Hydra executors), `m5d` (M5d-final v3 structured machine). |
 | `models/_vendor/isa_r3/` | Frozen shared sources from the compiled-C PoC lease job-007fe5d65603 (`PROVENANCE.json` has every file's sha256). |
 | `artifacts/frozen/<model>/` | Model artifacts, DVC-tracked (remote `beast-cold` = `s3://experiments/dvc/isa-bench` on Beast MinIO :9010). |
-| `programs/` | C sources: `c_apps` (PoC apps), `dev` and `heldout_m4` (M4/M5 sets), `fresh1`/`fresh2` (proof-gate held-out sets, run deliberately), `tools/` (tracer + native timer). |
+| `programs/` | C sources: `c_apps` (PoC apps), `dev` and `heldout_m4` (M4/M5 sets), `fresh1`/`fresh2`/`fresh3` (proof-gate held-out sets, run deliberately), `tools/` (tracer + native timer). |
 | `src/isa_bench/` | Harness: `worker.py` (in-lease entry), `cell.py` (one model x program in a fresh process), `state.py` (traces, memory, comparator), `adapters.py` (contract), `metrics.py`, `launch.py` (mrun), `tracking.py` (MLflow), `board.py` (compute board), `gate.py` (proof gate driver), `debug.py` (MDB), `cli.py`. |
 | `outputs/` | `reference/<suite>/` (traces; `store.json` points at the Beast copy eval jobs read), `eval/<model>/<suite>/` (cells + `summary.{json,md}`), `metrics/<model>.json` (DVC metrics), `report/`. |
 | `runs/` | Local receipts per submission (request, mrun job id, log, source manifest). |
